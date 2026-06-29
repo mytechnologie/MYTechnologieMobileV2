@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "scheme": "mytechservice",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/icon.png",
       "resizeMode": "contain",
@@ -19,7 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ca.mytechnologie.mytechservice",
-      "buildNumber": "34",
+      "buildNumber": "35",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
