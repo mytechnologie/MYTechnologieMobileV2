@@ -21,9 +21,9 @@ export type UserRole =
 
 /** Comment authentifier les requêtes : nom du header + valeur du token. */
 export interface SessionAuth {
-  /** Header HTTP à envoyer (ex. 'x-portal-session' ou 'authorization'). */
+  /** Header HTTP à envoyer (employé : 'x-portal-session' ; admin : 'Cookie'). */
   headerName: string;
-  /** Valeur du header (ex. token brut ou 'Bearer <jwt>'). */
+  /** Valeur (employé : token brut ; admin : '<COOKIE_NAME>=<jwt>'). */
   headerValue: string;
 }
 
@@ -75,18 +75,55 @@ export interface VerifyOtpResult {
 }
 
 /* -------------------------------------------------------------------------- */
-/* adminAuth (email + mot de passe)                                           */
+/* auth (admin — email + mot de passe, OTP conditionnel)                      */
 /* -------------------------------------------------------------------------- */
 
-export interface AdminLoginInput {
+export interface LoginInput {
   email: string;
   password: string;
 }
-export interface AdminLoginResult {
-  /** Token / JWT de session admin. */
+
+/** Connexion directe (pas d'OTP requis) : token JWT renvoyé. */
+export interface LoginDirectResult {
+  success: boolean;
+  otpRequired?: false;
+  /** Token JWT de session (à renvoyer en cookie COOKIE_NAME). */
   token: string;
   user: AuthUser;
   expiresInSeconds?: number;
+}
+
+/** Connexion nécessitant une 2e étape OTP SMS. */
+export interface LoginOtpRequiredResult {
+  success: boolean;
+  otpRequired: true;
+  challengeId: string;
+  /** Expiration du challenge (ISO ou epoch ms selon le backend). */
+  expiresAt?: string | number;
+  /** Moment à partir duquel un renvoi est possible. */
+  resendAvailableAt?: string | number;
+  user?: AuthUser;
+}
+
+export type LoginResult = LoginDirectResult | LoginOtpRequiredResult;
+
+export interface VerifyLoginOtpInput {
+  challengeId: string;
+  code: string;
+}
+export interface VerifyLoginOtpResult {
+  token: string;
+  user: AuthUser;
+  expiresInSeconds?: number;
+}
+
+export interface ResendLoginOtpInput {
+  challengeId: string;
+}
+export interface ResendLoginOtpResult {
+  success: boolean;
+  resendAvailableAt?: string | number;
+  expiresAt?: string | number;
 }
 
 /* -------------------------------------------------------------------------- */

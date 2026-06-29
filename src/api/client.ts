@@ -36,6 +36,9 @@ export const trpc = createTRPCProxyClient<any>({
       },
       headers() {
         return {
+          // OBLIGATOIRE : signale au backend une requête mobile. Sans ce header,
+          // auth.login exige un token Cloudflare Turnstile (impossible sur mobile).
+          'x-mobile-app': 'true',
           ...getAuthHeaders(),
         };
       },

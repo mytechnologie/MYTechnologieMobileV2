@@ -6,18 +6,22 @@
  */
 import { trpc } from './client';
 import type {
-  AdminLoginInput,
-  AdminLoginResult,
   ChangeWorkOrderStatusInput,
   CreateTimesheetEntryInput,
+  LoginInput,
+  LoginResult,
   ProjectDetail,
   ProjectListItem,
   ProjectTask,
   RequestOtpInput,
   RequestOtpResult,
+  ResendLoginOtpInput,
+  ResendLoginOtpResult,
   SubmitTimesheetEntriesInput,
   TimesheetEntry,
   UpdateTimesheetEntryInput,
+  VerifyLoginOtpInput,
+  VerifyLoginOtpResult,
   VerifyOtpInput,
   VerifyOtpResult,
   WorkOrderDetail,
@@ -33,11 +37,14 @@ export const portalAuth = {
     trpc.portalAuth.verifyOtp.mutate(input),
 };
 
-/* --------------------------- adminAuth (password) -------------------------- */
+/* ------------------------- auth (admin email/mdp + OTP) -------------------- */
 
-export const adminAuth = {
-  login: (input: AdminLoginInput): Promise<AdminLoginResult> =>
-    trpc.adminAuth.login.mutate(input),
+export const auth = {
+  login: (input: LoginInput): Promise<LoginResult> => trpc.auth.login.mutate(input),
+  verifyLoginOtp: (input: VerifyLoginOtpInput): Promise<VerifyLoginOtpResult> =>
+    trpc.auth.verifyLoginOtp.mutate(input),
+  resendLoginOtp: (input: ResendLoginOtpInput): Promise<ResendLoginOtpResult> =>
+    trpc.auth.resendLoginOtp.mutate(input),
 };
 
 /* -------------------------------- projects --------------------------------- */
@@ -49,18 +56,20 @@ export const projects = {
 };
 
 export const projectTasks = {
+  // Backend : projectTasks.list (input { projectId } supposé — non vérifiable sans auth).
   listByProject: (projectId: string): Promise<ProjectTask[]> =>
-    trpc.projectTasks.listByProject.query({ projectId }),
+    trpc.projectTasks.list.query({ projectId }),
 };
 
 /* ------------------------------ work orders -------------------------------- */
 
 export const workOrders = {
-  list: (): Promise<WorkOrderListItem[]> => trpc.workOrders.listWorkOrders.query(),
+  list: (): Promise<WorkOrderListItem[]> => trpc.workOrders.list.query(),
+  // Backend : workOrders.get (input { id } supposé).
   getById: (id: string): Promise<WorkOrderDetail> =>
-    trpc.workOrders.getWorkOrderById.query({ id }),
+    trpc.workOrders.get.query({ id }),
   changeStatus: (input: ChangeWorkOrderStatusInput): Promise<WorkOrderDetail> =>
-    trpc.workOrders.changeWorkOrderStatus.mutate(input),
+    trpc.workOrders.changeStatus.mutate(input),
 };
 
 /* -------------------------------- timesheet -------------------------------- */

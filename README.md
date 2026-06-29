@@ -25,9 +25,12 @@ npm run start               # puis « i » (iOS) ou « a » (Android)
 
 - Base URL : `EXPO_PUBLIC_API_URL` (fallback Cloud Run de production).
 - Préfixe tRPC : `/api/trpc`.
-- Auth employé : `portalAuth.requestOtp` / `verifyOtp` (OTP SMS, header `x-portal-session`).
-- Auth admin : `adminAuth.login` (email + mot de passe, header `Authorization: Bearer`).
-- Données : `projects.*`, `projectTasks.*`, `workOrders.*`, `timesheet.*`.
+- **Header obligatoire** `x-mobile-app: true` sur toutes les requêtes (sinon 403 CSRF / Turnstile).
+- Auth employé : `portalAuth.requestOtp` / `portalAuth.verifyOtp` (OTP SMS, header `x-portal-session`).
+- Auth admin : `auth.login` → `auth.verifyLoginOtp` / `auth.resendLoginOtp` (OTP conditionnel),
+  token JWT renvoyé en cookie `Cookie: <COOKIE_NAME>=<token>` (`EXPO_PUBLIC_SESSION_COOKIE_NAME`).
+- Données (noms vérifiés) : `projects.list` / `projects.getById`, `projectTasks.list`,
+  `workOrders.list` / `workOrders.get` / `workOrders.changeStatus`, `timesheet.*`.
 
 > Les types des entrées/sorties sont déclarés localement dans `src/api/types.ts` et les
 > noms de procédures dans `src/api/endpoints.ts`. Si une forme/route diffère côté backend,
@@ -37,8 +40,8 @@ npm run start               # puis « i » (iOS) ou « a » (Android)
 
 | Rôle | Connexion | Session |
 |------|-----------|---------|
-| Employé régulier (technicien…) | OTP SMS (`portalAuth`) | `x-portal-session`, 8 h |
-| admin / manager / super_admin | Email + mot de passe (`adminAuth`) | `Authorization: Bearer`, 8 h |
+| Employé régulier (technicien…) | OTP SMS (`portalAuth`) | header `x-portal-session`, 8 h |
+| admin / manager / super_admin | Email + mot de passe (`auth.login`) + OTP SMS si requis | cookie `<COOKIE_NAME>=<JWT>`, 8 h |
 
 La session expire après 8 h (re-login automatique). Un 401 force la déconnexion.
 
