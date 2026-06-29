@@ -2,7 +2,7 @@
   "expo": {
     "name": "My Tech Portail",
     "slug": "my-tech-service",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "mytechservice",
@@ -13,18 +13,20 @@
       "resizeMode": "contain",
       "backgroundColor": "#0a1f3d"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ca.mytechnologie.mytechservice",
-      "buildNumber": "1",
+      "buildNumber": "34",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "ca.mytechnologie.mytechservice",
-      "versionCode": 1,
+      "versionCode": 33,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a1f3d"
@@ -44,6 +46,13 @@
     ],
     "experiments": {
       "typedRoutes": false
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9ae2eb9a-6931-4198-a7d8-a61a1c1a9998"
+      }
+    },
+    "owner": "yanaubin"
   }
 }
