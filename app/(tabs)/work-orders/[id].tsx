@@ -1,10 +1,10 @@
 /**
- * Détail d'un bon de travail : infos, équipement, photos, changement de statut.
+ * Détail d'un bon de travail : informations, description du problème, actions
+ * réalisées, suivi, et changement de statut (workflow réel).
  */
 import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   Badge,
   Card,
@@ -15,11 +15,13 @@ import { Screen } from '../../../src/components/Screen';
 import { ErrorState, LoadingState } from '../../../src/components/States';
 import { workOrders } from '../../../src/api/endpoints';
 import { useMutation, useQuery } from '../../../src/api/useApi';
+import { useClientMap } from '../../../src/api/useClientMap';
 import {
   WORK_ORDER_STATUS_OPTIONS,
   formatDate,
   workOrderStatusStyle,
 } from '../../../src/lib/format';
+import { formatHours } from '../../../src/lib/time';
 import type { WorkOrderStatus } from '../../../src/api/types';
 import { colors, radius, spacing, typography } from '../../../src/theme';
 
@@ -27,15 +29,16 @@ export default function WorkOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
   const workOrderId = String(id);
+  const { clientName } = useClientMap();
 
   const woQ = useQuery(() => workOrders.getById(workOrderId), [workOrderId]);
   const changeStatus = useMutation(workOrders.changeStatus);
 
   useEffect(() => {
-    if (woQ.data?.number) {
-      navigation.setOptions({ title: `Bon #${woQ.data.number}` });
+    if (woQ.data?.ticketNumber) {
+      navigation.setOptions({ title: `Bon #${woQ.data.ticketNumber}` });
     }
-  }, [navigation, woQ.data?.number]);
+  }, [navigation, woQ.data?.ticketNumber]);
 
   const [pendingStatus, setPendingStatus] = useState<WorkOrderStatus | null>(null);
 
@@ -75,46 +78,55 @@ export default function WorkOrderDetailScreen() {
     );
   };
 
-  const photos = wo.photos ?? [];
-
   return (
     <Screen scroll refreshing={woQ.refreshing} onRefresh={woQ.refetch}>
       <Card style={styles.headerCard}>
         <View style={styles.headerTop}>
-          <Text style={styles.title}>{wo.title}</Text>
+          <Text style={styles.title}>{wo.serviceType || 'Bon de travail'}</Text>
           <Badge label={status.label} color={status.color} bg={status.bg} />
         </View>
-        <Text style={styles.number}>#{wo.number}</Text>
-        {wo.description ? <Text style={styles.desc}>{wo.description}</Text> : null}
+        <Text style={styles.number}>#{wo.ticketNumber}</Text>
       </Card>
 
       <SectionTitle>Informations</SectionTitle>
       <Card style={styles.block}>
-        {wo.client ? <InfoRow label="Client" value={wo.client} /> : null}
-        {wo.address ? <InfoRow label="Adresse" value={wo.address} /> : null}
-        {wo.scheduledDate ? (
-          <InfoRow label="Planifié" value={formatDate(wo.scheduledDate)} />
+        <InfoRow label="Client" value={clientName(wo.clientId)} />
+        {wo.location ? <InfoRow label="Adresse" value={wo.location} /> : null}
+        {wo.serviceDate ? (
+          <InfoRow label="Date de service" value={formatDate(wo.serviceDate)} />
         ) : null}
-        {wo.equipment ? <InfoRow label="Équipement" value={wo.equipment} /> : null}
-        {wo.contactName ? <InfoRow label="Contact" value={wo.contactName} /> : null}
-        {wo.contactPhone ? <InfoRow label="Téléphone" value={wo.contactPhone} /> : null}
+        {wo.durationMinutes != null ? (
+          <InfoRow label="Durée" value={formatHours(wo.durationMinutes / 60)} />
+        ) : null}
       </Card>
 
-      {/* Photos */}
-      <SectionTitle>Photos</SectionTitle>
-      {photos.length === 0 ? (
-        <Card style={styles.block}>
-          <Text style={styles.muted}>Aucune photo.</Text>
-        </Card>
-      ) : (
-        <View style={styles.photoGrid}>
-          {photos.map((p) => (
-            <Image key={p.id} source={{ uri: p.url }} style={styles.photo} />
-          ))}
-        </View>
-      )}
+      {wo.problemDescription ? (
+        <>
+          <SectionTitle>Problème rapporté</SectionTitle>
+          <Card style={styles.block}>
+            <Text style={styles.body}>{wo.problemDescription}</Text>
+          </Card>
+        </>
+      ) : null}
 
-      {/* Changement de statut */}
+      {wo.actionsTaken ? (
+        <>
+          <SectionTitle>Actions réalisées</SectionTitle>
+          <Card style={styles.block}>
+            <Text style={styles.body}>{wo.actionsTaken}</Text>
+          </Card>
+        </>
+      ) : null}
+
+      {wo.followUp ? (
+        <>
+          <SectionTitle>Suivi</SectionTitle>
+          <Card style={styles.block}>
+            <Text style={styles.body}>{wo.followUp}</Text>
+          </Card>
+        </>
+      ) : null}
+
       <SectionTitle>Changer le statut</SectionTitle>
       <View style={styles.statusGrid}>
         {WORK_ORDER_STATUS_OPTIONS.map((opt) => {
@@ -169,21 +181,8 @@ const styles = StyleSheet.create({
     fontWeight: typography.weightSemibold,
     color: colors.navy,
   },
-  desc: { fontSize: typography.small, color: colors.text, lineHeight: 20, marginTop: spacing.xs },
   block: { marginBottom: spacing.lg },
-  muted: { fontSize: typography.small, color: colors.textMuted },
-  photoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  photo: {
-    width: 104,
-    height: 104,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceAlt,
-  },
+  body: { fontSize: typography.small, color: colors.text, lineHeight: 20 },
   statusGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   statusChip: {
     paddingHorizontal: spacing.lg,

@@ -1,5 +1,6 @@
 /**
- * Liste des bons de travail (admin/manager) : numéro, titre, client, statut, date.
+ * Liste des bons de travail : ticketNumber, serviceType (titre), statut,
+ * client (résolu via clients.list), date de service, adresse (location).
  */
 import { useRouter } from 'expo-router';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
@@ -8,37 +9,48 @@ import { Badge, Card } from '../../../src/components/Primitives';
 import { EmptyState, ErrorState, LoadingState } from '../../../src/components/States';
 import { workOrders } from '../../../src/api/endpoints';
 import { useQuery } from '../../../src/api/useApi';
+import { useClientMap } from '../../../src/api/useClientMap';
 import { formatDate, workOrderStatusStyle } from '../../../src/lib/format';
 import type { WorkOrderListItem } from '../../../src/api/types';
 import { colors, spacing, typography } from '../../../src/theme';
 
 function WorkOrderRow({
   item,
+  clientName,
   onPress,
 }: {
   item: WorkOrderListItem;
+  clientName: string;
   onPress: () => void;
 }) {
   const status = workOrderStatusStyle(item.status);
   return (
     <Card style={styles.card} onPress={onPress}>
       <View style={styles.rowTop}>
-        <Text style={styles.number}>#{item.number}</Text>
+        <Text style={styles.number}>#{item.ticketNumber}</Text>
         <Badge label={status.label} color={status.color} bg={status.bg} />
       </View>
       <Text style={styles.title} numberOfLines={2}>
-        {item.title}
+        {item.serviceType || 'Bon de travail'}
       </Text>
-      {item.client ? (
+      <View style={styles.metaLine}>
+        <Ionicons name="business-outline" size={14} color={colors.textMuted} />
+        <Text style={styles.meta} numberOfLines={1}>
+          {clientName}
+        </Text>
+      </View>
+      {item.location ? (
         <View style={styles.metaLine}>
-          <Ionicons name="business-outline" size={14} color={colors.textMuted} />
-          <Text style={styles.meta}>{item.client}</Text>
+          <Ionicons name="location-outline" size={14} color={colors.textMuted} />
+          <Text style={styles.meta} numberOfLines={1}>
+            {item.location}
+          </Text>
         </View>
       ) : null}
-      {item.scheduledDate ? (
+      {item.serviceDate ? (
         <View style={styles.metaLine}>
           <Ionicons name="calendar-outline" size={14} color={colors.textMuted} />
-          <Text style={styles.meta}>{formatDate(item.scheduledDate)}</Text>
+          <Text style={styles.meta}>{formatDate(item.serviceDate)}</Text>
         </View>
       ) : null}
     </Card>
@@ -47,6 +59,7 @@ function WorkOrderRow({
 
 export default function WorkOrdersListScreen() {
   const router = useRouter();
+  const { clientName } = useClientMap();
   const { data, loading, error, refetch, refreshing } = useQuery(
     () => workOrders.list(),
     [],
@@ -58,13 +71,14 @@ export default function WorkOrdersListScreen() {
   return (
     <FlatList
       data={data ?? []}
-      keyExtractor={(w) => w.id}
+      keyExtractor={(w) => String(w.id)}
       contentContainerStyle={styles.list}
       onRefresh={refetch}
       refreshing={refreshing}
       renderItem={({ item }) => (
         <WorkOrderRow
           item={item}
+          clientName={clientName(item.clientId)}
           onPress={() => router.push(`/(tabs)/work-orders/${item.id}`)}
         />
       )}
@@ -94,5 +108,5 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: typography.body, fontWeight: typography.weightSemibold, color: colors.text },
   metaLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  meta: { fontSize: typography.small, color: colors.textMuted },
+  meta: { fontSize: typography.small, color: colors.textMuted, flexShrink: 1 },
 });

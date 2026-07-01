@@ -126,106 +126,172 @@ export interface ResendLoginOtpResult {
   expiresAt?: string | number;
 }
 
+/**
+ * Le transformer superjson (déjà branché sur le client) restitue les `timestamp`
+ * SQL en objets `Date` et les colonnes `date` (YYYY-MM-DD) en `Date` également.
+ * On tolère string | Date partout où le backend renvoie une date.
+ */
+export type ApiDate = string | Date | null;
+
 /* -------------------------------------------------------------------------- */
-/* Projets                                                                    */
+/* Clients (clients.list → { items, total })                                  */
 /* -------------------------------------------------------------------------- */
 
-export type ProjectStatus =
-  | 'planning'
-  | 'active'
-  | 'on_hold'
-  | 'completed'
-  | 'cancelled'
-  | (string & {});
-
-export interface ProjectListItem {
-  id: string;
+/** Le nom du client N'EST PAS dans work_orders : on résout via clients.list. */
+export interface ClientListItem {
+  id: number;
   name: string;
-  client?: string | null;
-  status: ProjectStatus;
-  /** Avancement 0–100. */
-  progress?: number | null;
-  budgetHours?: number | null;
-  spentHours?: number | null;
-}
-
-export interface ProjectPhase {
-  id: string;
-  name: string;
-  status?: string | null;
-  progress?: number | null;
-}
-
-export interface ProjectDetail extends ProjectListItem {
-  description?: string | null;
-  phases?: ProjectPhase[];
-  budgetAmount?: number | null;
-  spentAmount?: number | null;
-  startDate?: string | null;
-  endDate?: string | null;
-}
-
-export type ProjectTaskStatus =
-  | 'todo'
-  | 'in_progress'
-  | 'blocked'
-  | 'done'
-  | (string & {});
-
-export interface ProjectTask {
-  id: string;
-  projectId: string;
-  name: string;
-  status: ProjectTaskStatus;
-  phaseId?: string | null;
-  phaseName?: string | null;
-  estimatedHours?: number | null;
-  loggedHours?: number | null;
-  assignee?: string | null;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Bons de travail                                                            */
-/* -------------------------------------------------------------------------- */
-
-export type WorkOrderStatus =
-  | 'pending'
-  | 'scheduled'
-  | 'in_progress'
-  | 'on_hold'
-  | 'completed'
-  | 'cancelled'
-  | (string & {});
-
-export interface WorkOrderPhoto {
-  id: string;
-  url: string;
-  caption?: string | null;
-  createdAt?: string | null;
-}
-
-export interface WorkOrderListItem {
-  id: string;
-  number: string;
-  title: string;
-  client?: string | null;
-  status: WorkOrderStatus;
-  scheduledDate?: string | null;
+  city?: string | null;
   address?: string | null;
 }
 
-export interface WorkOrderDetail extends WorkOrderListItem {
+/* -------------------------------------------------------------------------- */
+/* Projets (table `projects`)                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** Statuts réels de la table projects. */
+export type ProjectStatus =
+  | 'planification'
+  | 'en_cours'
+  | 'pause'
+  | 'terminé'
+  | (string & {});
+
+/** Colonnes brutes communes de `projects`. */
+interface ProjectBase {
+  id: number;
+  name: string;
   description?: string | null;
-  equipment?: string | null;
-  contactName?: string | null;
-  contactPhone?: string | null;
-  photos?: WorkOrderPhoto[];
+  status: ProjectStatus;
+  clientId: number;
+  /** Ajouté par le backend (map clientId→name). */
+  clientName?: string | null;
+  location?: string | null;
+  startDate?: ApiDate;
+  endDate?: ApiDate;
+  /** `decimal` → renvoyé en string par le backend. */
+  budget?: string | number | null;
+  budgetHours?: string | number | null;
+  budgetLaborCost?: string | number | null;
+  createdAt?: ApiDate;
+  updatedAt?: ApiDate;
 }
 
+/**
+ * projects.list : colonnes projects + clientName + champs calculés préfixés `_`.
+ */
+export interface ProjectListItem extends ProjectBase {
+  /** Avancement 0–100 (calculé côté backend depuis les tâches). */
+  _progress?: number;
+  _taskCount?: number;
+  _doneCount?: number;
+  _phaseCount?: number;
+  /** Heures : budget et cumul (nombres, déjà convertis côté backend). */
+  _budgetHours?: number | null;
+  _hoursLogged?: number;
+  _hoursPct?: number | null;
+}
+
+/** projects.getById : colonnes projects + clientName (SANS les champs calculés). */
+export type ProjectDetail = ProjectBase;
+
+/* -------------------------------- Tâches ----------------------------------- */
+
+export type ProjectTaskStatus =
+  | 'à_faire'
+  | 'en_cours'
+  | 'bloquée'
+  | 'terminée'
+  | (string & {});
+
+export type ProjectTaskPriority =
+  | 'basse'
+  | 'normale'
+  | 'haute'
+  | 'urgente'
+  | (string & {});
+
+export interface ProjectTaskChecklistItem {
+  id: number;
+  taskId: number;
+  label: string;
+  isCompleted: boolean;
+  order: number;
+}
+
+/**
+ * projectTasks.list renvoie un ARBRE : chaque nœud = ligne project_tasks
+ * + children (sous-tâches) + checklistItems + comments.
+ */
+export interface ProjectTask {
+  id: number;
+  projectId: number;
+  parentTaskId?: number | null;
+  phaseId?: number | null;
+  spaceLabel?: string | null;
+  title: string;
+  description?: string | null;
+  details?: string | null;
+  status: ProjectTaskStatus;
+  priority: ProjectTaskPriority;
+  /** Avancement 0–100. */
+  progress: number;
+  order: number;
+  children: ProjectTask[];
+  checklistItems?: ProjectTaskChecklistItem[];
+  comments?: unknown[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Bons de travail (table `work_orders`)                                      */
+/* -------------------------------------------------------------------------- */
+
+/** Statuts réels de la table work_orders. */
+export type WorkOrderStatus =
+  | 'en_attente'
+  | 'assigne'
+  | 'en_cours'
+  | 'soumis'
+  | 'en_revision'
+  | 'approuve'
+  | 'facture'
+  | 'non_facture'
+  | (string & {});
+
+/**
+ * work_orders : la liste ({ items, total }) et le détail (get) renvoient tous
+ * deux la LIGNE COMPLÈTE. Une seule forme suffit donc pour les deux.
+ */
+export interface WorkOrder {
+  id: number;
+  ticketNumber: string;
+  clientId: number;
+  technicianId?: number | null;
+  status: WorkOrderStatus;
+  /** Le "titre" métier du bon. */
+  serviceType?: string | null;
+  /** L'"adresse" du service. */
+  location?: string | null;
+  serviceDate?: ApiDate;
+  durationMinutes?: number | null;
+  problemDescription?: string | null;
+  actionsTaken?: string | null;
+  followUp?: string | null;
+  materialsInternal?: string | null;
+  clientNote?: string | null;
+  dispatchedAt?: ApiDate;
+  approvedAt?: ApiDate;
+  createdAt?: ApiDate;
+  updatedAt?: ApiDate;
+}
+
+export type WorkOrderListItem = WorkOrder;
+export type WorkOrderDetail = WorkOrder;
+
 export interface ChangeWorkOrderStatusInput {
+  /** Id (string côté écran) → converti en number vers le backend. */
   id: string;
   status: WorkOrderStatus;
-  note?: string;
 }
 
 /* -------------------------------------------------------------------------- */

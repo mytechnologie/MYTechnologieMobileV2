@@ -7,6 +7,7 @@
 import { trpc } from './client';
 import type {
   ChangeWorkOrderStatusInput,
+  ClientListItem,
   CreateTimesheetEntryInput,
   LoginInput,
   LoginResult,
@@ -28,6 +29,13 @@ import type {
   WorkOrderListItem,
 } from './types';
 
+/** clients.list et workOrders.list renvoient { items, total } → on déballe. */
+function unwrapItems<T>(res: unknown): T[] {
+  if (Array.isArray(res)) return res as T[];
+  const items = (res as { items?: unknown })?.items;
+  return Array.isArray(items) ? (items as T[]) : [];
+}
+
 /* ----------------------------- portalAuth (OTP) ---------------------------- */
 
 export const portalAuth = {
@@ -47,29 +55,41 @@ export const auth = {
     trpc.auth.resendLoginOtp.mutate(input),
 };
 
+/* --------------------------------- clients --------------------------------- */
+
+export const clients = {
+  // clients.list → { items, total }. Le nom du client n'étant pas dans work_orders,
+  // on charge cette liste pour construire un map clientId→name (comme le web).
+  list: async (): Promise<ClientListItem[]> =>
+    unwrapItems<ClientListItem>(await trpc.clients.list.query()),
+};
+
 /* -------------------------------- projects --------------------------------- */
 
 export const projects = {
+  // projects.list renvoie déjà un tableau (colonnes + clientName + champs calculés).
   list: (): Promise<ProjectListItem[]> => trpc.projects.list.query(),
   getById: (id: string): Promise<ProjectDetail> =>
-    trpc.projects.getById.query({ id }),
+    trpc.projects.getById.query({ id: Number(id) }),
 };
 
 export const projectTasks = {
-  // Backend : projectTasks.list (input { projectId } supposé — non vérifiable sans auth).
+  // projectTasks.list attend { projectId: number } et renvoie un ARBRE de tâches.
   listByProject: (projectId: string): Promise<ProjectTask[]> =>
-    trpc.projectTasks.list.query({ projectId }),
+    trpc.projectTasks.list.query({ projectId: Number(projectId) }),
 };
 
 /* ------------------------------ work orders -------------------------------- */
 
 export const workOrders = {
-  list: (): Promise<WorkOrderListItem[]> => trpc.workOrders.list.query(),
-  // Backend : workOrders.get (input { id } supposé).
+  // workOrders.list → { items, total }.
+  list: async (): Promise<WorkOrderListItem[]> =>
+    unwrapItems<WorkOrderListItem>(await trpc.workOrders.list.query()),
   getById: (id: string): Promise<WorkOrderDetail> =>
-    trpc.workOrders.get.query({ id }),
-  changeStatus: (input: ChangeWorkOrderStatusInput): Promise<WorkOrderDetail> =>
-    trpc.workOrders.changeStatus.mutate(input),
+    trpc.workOrders.get.query({ id: Number(id) }),
+  // Le backend attend id: number et renvoie { success: true }.
+  changeStatus: (input: ChangeWorkOrderStatusInput): Promise<{ success: boolean }> =>
+    trpc.workOrders.changeStatus.mutate({ id: Number(input.id), status: input.status }),
 };
 
 /* -------------------------------- timesheet -------------------------------- */

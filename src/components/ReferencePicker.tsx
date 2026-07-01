@@ -51,15 +51,15 @@ export function ReferencePicker({
   const options = useMemo<Option[]>(() => {
     const p: Option[] = (projectsQ.data ?? []).map((x) => ({
       kind: 'project',
-      id: x.id,
+      id: String(x.id),
       label: x.name,
-      sublabel: x.client ?? 'Projet',
+      sublabel: x.clientName ?? 'Projet',
     }));
     const w: Option[] = (workOrdersQ.data ?? []).map((x) => ({
       kind: 'workOrder',
-      id: x.id,
-      label: `#${x.number} — ${x.title}`,
-      sublabel: x.client ?? 'Bon de travail',
+      id: String(x.id),
+      label: `#${x.ticketNumber} — ${x.serviceType ?? 'Bon de travail'}`,
+      sublabel: x.location ?? 'Bon de travail',
     }));
     return [...p, ...w];
   }, [projectsQ.data, workOrdersQ.data]);

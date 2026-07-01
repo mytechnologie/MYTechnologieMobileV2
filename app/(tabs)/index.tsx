@@ -79,11 +79,13 @@ export default function HomeScreen() {
   }, [entriesQ.data]);
 
   const todayISO = toISODate(new Date());
-  const todaysWorkOrders = (workOrdersQ.data ?? []).filter(
-    (w) => w.scheduledDate && w.scheduledDate.slice(0, 10) === todayISO,
-  ).length;
+  const todaysWorkOrders = (workOrdersQ.data ?? []).filter((w) => {
+    if (!w.serviceDate) return false;
+    const d = new Date(w.serviceDate);
+    return !Number.isNaN(d.getTime()) && toISODate(d) === todayISO;
+  }).length;
   const activeProjects = (projectsQ.data ?? []).filter(
-    (p) => p.status === 'active' || p.status === 'planning',
+    (p) => p.status === 'en_cours' || p.status === 'planification',
   ).length;
 
   const refreshing =
