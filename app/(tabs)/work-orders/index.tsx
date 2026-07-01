@@ -79,7 +79,7 @@ export default function WorkOrdersListScreen() {
         <WorkOrderRow
           item={item}
           clientName={clientName(item.clientId)}
-          onPress={() => router.push(`/(tabs)/work-orders/${item.id}`)}
+          onPress={() => router.push(`/work-orders/${item.id}`)}
         />
       )}
       ListEmptyComponent={

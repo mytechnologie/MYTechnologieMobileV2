@@ -23,7 +23,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
+// import * as ImagePicker from 'expo-image-picker';
 import {
   Badge,
   Button,
@@ -48,7 +48,7 @@ import type { WorkOrderStatus } from '../../../src/api/types';
 import { colors, radius, spacing, typography } from '../../../src/theme';
 
 /** Dérive un nom/type de fichier compatibles backend (jpg/jpeg/png/webp). */
-function fileFromAsset(asset: ImagePicker.ImagePickerAsset): {
+function fileFromAsset(asset: any): {
   uri: string;
   name: string;
   type: string;
@@ -176,8 +176,8 @@ export default function WorkOrderDetailScreen() {
     try {
       const perm =
         source === 'camera'
-          ? await ImagePicker.requestCameraPermissionsAsync()
-          : await ImagePicker.requestMediaLibraryPermissionsAsync();
+          ? await (await import('expo-image-picker')).requestCameraPermissionsAsync()
+          : await (await import('expo-image-picker')).requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
         Alert.alert(
           'Permission requise',
@@ -189,8 +189,8 @@ export default function WorkOrderDetailScreen() {
       }
       const result =
         source === 'camera'
-          ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.6 })
-          : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
+          ? await (await import('expo-image-picker')).launchCameraAsync({ mediaTypes: ['images'], quality: 0.6 })
+          : await (await import('expo-image-picker')).launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
       const asset = result.canceled ? undefined : result.assets?.[0];
       if (!asset) return;
 

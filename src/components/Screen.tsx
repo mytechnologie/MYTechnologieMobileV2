@@ -3,6 +3,8 @@
  */
 import React from 'react';
 import {
+  KeyboardAvoidingView,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -36,6 +38,11 @@ export function Screen({
 
   return (
     <SafeAreaView style={styles.safe} edges={edges}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+      >
       {scroll ? (
         <ScrollView
           style={styles.flex}
@@ -57,6 +64,7 @@ export function Screen({
       ) : (
         <View style={[styles.flex, padding, contentStyle]}>{children}</View>
       )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
