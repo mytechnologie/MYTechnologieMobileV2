@@ -294,6 +294,26 @@ export interface ChangeWorkOrderStatusInput {
   status: WorkOrderStatus;
 }
 
+/**
+ * Champs éditables terrain d'un bon de travail (workOrders.update).
+ * ⚠️ Réalité backend : pour le rôle `technician`, SEULS problemDescription,
+ * actionsTaken et materialsInternal sont persistés (et si status ∈
+ * {en_attente, assigne, en_cours} + fenêtre 7 jours). durationMinutes et
+ * followUp ne sont enregistrés que pour admin/manager.
+ */
+export interface WorkOrderUpdateInput {
+  /** Id (string côté écran) → converti en number vers le backend. */
+  id: string;
+  durationMinutes?: number | null;
+  problemDescription?: string | null;
+  actionsTaken?: string | null;
+  materialsInternal?: string | null;
+  followUp?: string | null;
+}
+
+/** getPhotoUrls → { [photoId]: urlSignée }. */
+export type WorkOrderPhotoUrls = Record<number, string>;
+
 /* -------------------------------------------------------------------------- */
 /* Saisie d'heures (timesheet)                                                */
 /* -------------------------------------------------------------------------- */

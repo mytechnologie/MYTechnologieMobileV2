@@ -5,6 +5,8 @@
  * expose un autre nom, ajuster ICI uniquement. Les types viennent de `types.ts`.
  */
 import { trpc } from './client';
+import { API_BASE } from './config';
+import { getAuthHeaders } from '../auth/session';
 import type {
   ChangeWorkOrderStatusInput,
   ClientListItem,
@@ -27,6 +29,8 @@ import type {
   VerifyOtpResult,
   WorkOrderDetail,
   WorkOrderListItem,
+  WorkOrderPhotoUrls,
+  WorkOrderUpdateInput,
 } from './types';
 
 /** clients.list et workOrders.list renvoient { items, total } → on déballe. */
@@ -90,6 +94,54 @@ export const workOrders = {
   // Le backend attend id: number et renvoie { success: true }.
   changeStatus: (input: ChangeWorkOrderStatusInput): Promise<{ success: boolean }> =>
     trpc.workOrders.changeStatus.mutate({ id: Number(input.id), status: input.status }),
+  // Mise à jour terrain. Voir WorkOrderUpdateInput : le backend filtre selon le rôle.
+  update: ({ id, ...fields }: WorkOrderUpdateInput): Promise<{ success: boolean }> =>
+    trpc.workOrders.update.mutate({ id: Number(id), ...fields }),
+
+  /* ------------------------------- photos -------------------------------- */
+
+  // getPhotoUrls → { [photoId]: urlSignée }.
+  getPhotoUrls: (id: string): Promise<WorkOrderPhotoUrls> =>
+    trpc.workOrders.getPhotoUrls.query({ workOrderId: Number(id) }),
+  deletePhoto: (photoId: number): Promise<{ success: boolean }> =>
+    trpc.workOrders.deletePhoto.mutate({ photoId }),
+
+  /**
+   * Ajout de photo : route REST multipart (PAS tRPC/base64).
+   * POST {API_BASE}/api/work-orders/:id/photos — champ fichier + `caption`.
+   * Auth via les mêmes headers que tRPC (Cookie admin) ; ne PAS fixer
+   * Content-Type (React Native pose le boundary multipart automatiquement).
+   */
+  uploadPhoto: async (
+    id: string,
+    file: { uri: string; name: string; type: string },
+    caption = '',
+  ): Promise<{ success: boolean; count: number }> => {
+    const form = new FormData();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    form.append('file', { uri: file.uri, name: file.name, type: file.type } as any);
+    if (caption) form.append('caption', caption);
+
+    const res = await fetch(`${API_BASE}/api/work-orders/${Number(id)}/photos`, {
+      method: 'POST',
+      headers: {
+        'x-mobile-app': 'true',
+        ...getAuthHeaders(),
+      },
+      body: form,
+    });
+    if (!res.ok) {
+      let message = `Échec de l'envoi (${res.status}).`;
+      try {
+        const body = (await res.json()) as { error?: string };
+        if (body?.error) message = body.error;
+      } catch {
+        /* réponse non-JSON */
+      }
+      throw new Error(message);
+    }
+    return (await res.json()) as { success: boolean; count: number };
+  },
 };
 
 /* -------------------------------- timesheet -------------------------------- */

@@ -21,7 +21,9 @@
       "bundleIdentifier": "ca.mytechnologie.mytechservice",
       "buildNumber": "35",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "L'application utilise la caméra pour prendre des photos avant/après sur un bon de travail.",
+        "NSPhotoLibraryUsageDescription": "L'application accède à vos photos pour joindre des images à un bon de travail."
       }
     },
     "android": {
@@ -43,7 +45,14 @@
           "backgroundColor": "#0a1f3d"
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "L'application accède à vos photos pour joindre des images à un bon de travail.",
+          "cameraPermission": "L'application utilise la caméra pour prendre des photos avant/après sur un bon de travail."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false
