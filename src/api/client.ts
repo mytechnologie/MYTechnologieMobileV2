@@ -8,6 +8,7 @@
 import { createTRPCProxyClient, httpBatchLink } from '@trpc/client';
 import { API_TRPC_URL } from './config';
 import { getAuthHeaders } from '../auth/session';
+import superjson from 'superjson';
 
 /**
  * Accès permissif au proxy : la sûreté de type est garantie au niveau des wrappers
@@ -27,6 +28,7 @@ export const trpc = createTRPCProxyClient<any>({
   links: [
     httpBatchLink({
       url: API_TRPC_URL,
+      transformer: superjson,
       async fetch(input, init) {
         const res = await fetch(input as RequestInfo, init);
         if (res.status === 401) {
