@@ -28,6 +28,7 @@ import {
 } from '../../../src/components/Primitives';
 import { Screen } from '../../../src/components/Screen';
 import { ErrorState, LoadingState } from '../../../src/components/States';
+import { PhotoSection } from '../../../src/components/PhotoSection';
 import { projectTasks } from '../../../src/api/endpoints';
 import { useMutation, useQuery } from '../../../src/api/useApi';
 import { taskPriorityStyle, taskStatusStyle } from '../../../src/lib/format';
@@ -65,6 +66,7 @@ export default function ProjectTaskScreen() {
   const tid = Number(taskId);
 
   const tasksQ = useQuery(() => projectTasks.listByProject(pid), [pid]);
+  const photosQ = useQuery(() => projectTasks.getPhotoUrls(tid), [tid]);
   const saveNotes = useMutation(projectTasks.update);
 
   const task = useMemo(
@@ -238,17 +240,16 @@ export default function ProjectTaskScreen() {
         <Button title="Enregistrer les notes" onPress={onSaveNotes} loading={saveNotes.loading} />
       </Card>
 
-      {/* Photos — prérequis backend */}
+      {/* Photos (avant/après) — même mécanisme que les bons de travail */}
       <SectionTitle>Photos</SectionTitle>
       <Card style={styles.block}>
-        <View style={styles.prereq}>
-          <Ionicons name="information-circle-outline" size={20} color={colors.info} />
-          <Text style={styles.prereqText}>
-            Les photos de tâche nécessitent un endpoint backend (table
-            project_task_photos + route POST /api/project-tasks/:id/photos, calquée
-            sur les bons de travail). À créer côté serveur avant activation ici.
-          </Text>
-        </View>
+        <PhotoSection
+          urls={photosQ.data}
+          loading={photosQ.loading}
+          upload={(file) => projectTasks.uploadPhoto(tid, file)}
+          remove={(photoId) => projectTasks.deletePhoto(tid, photoId)}
+          onChanged={photosQ.refetch}
+        />
       </Card>
     </Screen>
   );

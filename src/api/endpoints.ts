@@ -13,9 +13,11 @@ import type {
   CreateTimesheetEntryInput,
   LoginInput,
   LoginResult,
+  PlanAnnotation,
   ProjectAttachment,
   ProjectDetail,
   ProjectListItem,
+  ProjectPlan,
   ProjectTask,
   ProjectTaskUpdateInput,
   RequestOtpInput,
@@ -42,6 +44,53 @@ function unwrapItems<T>(res: unknown): T[] {
   if (Array.isArray(res)) return res as T[];
   const items = (res as { items?: unknown })?.items;
   return Array.isArray(items) ? (items as T[]) : [];
+}
+
+/** Fichier photo prêt pour un upload multipart (issu d'expo-image-picker). */
+export interface PhotoFile {
+  uri: string;
+  name: string;
+  type: string;
+}
+/** getPhotoUrls (BT ou tâche) → { [photoId]: urlSignée }. */
+export type PhotoUrls = Record<number, string>;
+
+async function authFetchJson(path: string, init: RequestInit): Promise<any> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { 'x-mobile-app': 'true', ...getAuthHeaders(), ...(init.headers ?? {}) },
+  });
+  if (!res.ok) {
+    let message = `Échec (${res.status}).`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body?.error) message = body.error;
+    } catch {
+      /* réponse non-JSON */
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+/**
+ * Upload photo multipart (route REST commune BT + tâches projet). NE PAS fixer
+ * Content-Type : React Native pose le boundary multipart automatiquement.
+ */
+export function uploadPhotoMultipart(
+  path: string,
+  file: PhotoFile,
+  caption = '',
+): Promise<{ success: boolean; count: number }> {
+  const form = new FormData();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  form.append('file', { uri: file.uri, name: file.name, type: file.type } as any);
+  if (caption) form.append('caption', caption);
+  return authFetchJson(path, { method: 'POST', body: form });
+}
+
+export function deletePhotoRest(path: string): Promise<{ success: boolean }> {
+  return authFetchJson(path, { method: 'DELETE' });
 }
 
 /* ----------------------------- portalAuth (OTP) ---------------------------- */
@@ -79,6 +128,24 @@ export const projects = {
   list: (): Promise<ProjectListItem[]> => trpc.projects.list.query(),
   getById: (id: string): Promise<ProjectDetail> =>
     trpc.projects.getById.query({ id: Number(id) }),
+
+  /* ------------------------------- plans (project_plans) --------------------- */
+
+  // getPlans → plans avec fileUrl R2 rafraîchie + annotations (tableau).
+  getPlans: (projectId: string): Promise<ProjectPlan[]> =>
+    trpc.projects.getPlans.query({ projectId: Number(projectId) }),
+
+  // Remplace le tableau complet d'annotations (partagé avec le web — même JSON).
+  updatePlanAnnotations: (input: {
+    planId: number;
+    projectId: string;
+    annotations: PlanAnnotation[];
+  }): Promise<{ success: boolean }> =>
+    trpc.projects.updatePlanAnnotations.mutate({
+      planId: input.planId,
+      projectId: Number(input.projectId),
+      annotations: input.annotations,
+    }),
 };
 
 export const projectTasks = {
@@ -108,6 +175,18 @@ export const projectTasks = {
       details: input.details,
       status: input.status,
     }),
+
+  /* ------------------------ photos de tâche (comme BT) ------------------------ */
+
+  // getPhotoUrls → { [photoId]: urlSignée }.
+  getPhotoUrls: (taskId: number): Promise<PhotoUrls> =>
+    trpc.projectTasks.getPhotoUrls.query({ taskId }),
+  // Upload REST multipart : POST /api/project-tasks/:id/photos (mêmes headers que BT).
+  uploadPhoto: (taskId: number, file: PhotoFile, caption = '') =>
+    uploadPhotoMultipart(`/api/project-tasks/${taskId}/photos`, file, caption),
+  // Suppression REST : DELETE /api/project-tasks/:id/photos/:photoId.
+  deletePhoto: (taskId: number, photoId: number) =>
+    deletePhotoRest(`/api/project-tasks/${taskId}/photos/${photoId}`),
 };
 
 /* --------------------------- project attachments --------------------------- */
@@ -169,42 +248,10 @@ export const workOrders = {
   deletePhoto: (photoId: number): Promise<{ success: boolean }> =>
     trpc.workOrders.deletePhoto.mutate({ photoId }),
 
-  /**
-   * Ajout de photo : route REST multipart (PAS tRPC/base64).
-   * POST {API_BASE}/api/work-orders/:id/photos — champ fichier + `caption`.
-   * Auth via les mêmes headers que tRPC (Cookie admin) ; ne PAS fixer
-   * Content-Type (React Native pose le boundary multipart automatiquement).
-   */
-  uploadPhoto: async (
-    id: string,
-    file: { uri: string; name: string; type: string },
-    caption = '',
-  ): Promise<{ success: boolean; count: number }> => {
-    const form = new FormData();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    form.append('file', { uri: file.uri, name: file.name, type: file.type } as any);
-    if (caption) form.append('caption', caption);
-
-    const res = await fetch(`${API_BASE}/api/work-orders/${Number(id)}/photos`, {
-      method: 'POST',
-      headers: {
-        'x-mobile-app': 'true',
-        ...getAuthHeaders(),
-      },
-      body: form,
-    });
-    if (!res.ok) {
-      let message = `Échec de l'envoi (${res.status}).`;
-      try {
-        const body = (await res.json()) as { error?: string };
-        if (body?.error) message = body.error;
-      } catch {
-        /* réponse non-JSON */
-      }
-      throw new Error(message);
-    }
-    return (await res.json()) as { success: boolean; count: number };
-  },
+  // Ajout de photo : route REST multipart POST /api/work-orders/:id/photos
+  // (helper partagé avec les photos de tâche projet).
+  uploadPhoto: (id: string, file: PhotoFile, caption = '') =>
+    uploadPhotoMultipart(`/api/work-orders/${Number(id)}/photos`, file, caption),
 };
 
 /* -------------------------------- timesheet -------------------------------- */

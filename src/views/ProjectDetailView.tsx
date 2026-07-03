@@ -67,9 +67,12 @@ export function ProjectDetailView({
 
   const openTask = (taskId: number) =>
     router.push(`/projects/task?projectId=${projectId}&taskId=${taskId}`);
+  const openPlan = (planId: number) =>
+    router.push(`/projects/plan?projectId=${projectId}&planId=${planId}`);
 
   const projectQ = useQuery(() => projectsApi.getById(projectId), [projectId]);
   const tasksQ = useQuery(() => projectTasks.listByProject(projectId), [projectId]);
+  const sitePlansQ = useQuery(() => projectsApi.getPlans(projectId), [projectId]);
   const plansQ = useQuery(() => projectAttachments.list(projectId), [projectId]);
 
   useEffect(() => {
@@ -138,7 +141,37 @@ export function ProjectDetailView({
         ) : null}
       </Card>
 
-      <SectionTitle>Plans & documents</SectionTitle>
+      <SectionTitle>Plans de chantier</SectionTitle>
+      <Card style={styles.block}>
+        {sitePlansQ.loading ? (
+          <Text style={styles.muted}>Chargement des plans…</Text>
+        ) : sitePlansQ.error ? (
+          <Text style={styles.muted}>Plans indisponibles.</Text>
+        ) : (sitePlansQ.data ?? []).length === 0 ? (
+          <Text style={styles.muted}>Aucun plan. (Ajout d'un plan via le web.)</Text>
+        ) : (
+          (sitePlansQ.data ?? []).map((pl) => (
+            <Pressable key={pl.id} style={styles.planRow} onPress={() => openPlan(pl.id)}>
+              <Ionicons
+                name={pl.fileType === 'pdf' ? 'document-outline' : 'map-outline'}
+                size={20}
+                color={colors.navy}
+              />
+              <View style={styles.planRowText}>
+                <Text style={styles.planRowName} numberOfLines={1}>
+                  {pl.name}
+                </Text>
+                <Text style={styles.muted}>
+                  {(pl.annotations?.length ?? 0)} marqueur(s) · {pl.fileType.toUpperCase()}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </Pressable>
+          ))
+        )}
+      </Card>
+
+      <SectionTitle>Documents</SectionTitle>
       <Card style={styles.block}>
         {plansQ.loading ? (
           <Text style={styles.muted}>Chargement des plans…</Text>
@@ -286,6 +319,16 @@ const styles = StyleSheet.create({
   },
   planDoc: { alignItems: 'center', justifyContent: 'center' },
   planName: { fontSize: typography.tiny, color: colors.text },
+  planRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  planRowText: { flex: 1 },
+  planRowName: { fontSize: typography.small, color: colors.text, fontWeight: typography.weightMedium },
 
   taskList: { gap: spacing.sm },
   taskCard: { gap: spacing.xs },

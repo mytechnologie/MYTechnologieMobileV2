@@ -257,6 +257,44 @@ export interface ProjectAttachment {
   fileSizeBytes?: number | null;
 }
 
+/**
+ * Marqueur d'annotation sur un plan de chantier. Format IDENTIQUE au web
+ * (client ProjectDetail.tsx) pour compatibilité web ↔ iPad :
+ * - `x`/`y` en POURCENTAGE 0..100 (1 décimale) du plan, pour rester corrects
+ *   quel que soit le zoom/la résolution.
+ * - `icon` = la clé de type ; `color` = tint du type ; `status` d'équipement
+ *   (planned|in_progress|installed|compliant|issue) ou de note (info|warning|urgent).
+ */
+export interface PlanAnnotation {
+  id: string;
+  x: number;
+  y: number;
+  type: string;
+  label: string;
+  color?: string;
+  icon?: string;
+  status?: string;
+  linkedTaskId?: number | null;
+  statusChangedAt?: string | null;
+  statusChangedBy?: number | null;
+  issueNotes?: string | null;
+  completedAt?: string | null;
+}
+
+/** Plan de chantier (project_plans) : image ou PDF (R2) + annotations. */
+export interface ProjectPlan {
+  id: number;
+  projectId: number;
+  name: string;
+  description?: string | null;
+  fileUrl: string;
+  fileName: string;
+  fileType: 'pdf' | 'image';
+  version?: number;
+  annotations: PlanAnnotation[];
+  order?: number;
+}
+
 /** Mise à jour d'une tâche (on réutilise `details` comme notes terrain). */
 export interface ProjectTaskUpdateInput {
   /** Id de la tâche. */
