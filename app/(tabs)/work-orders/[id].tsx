@@ -42,6 +42,8 @@ import { isElevated } from '../../../src/auth/access';
 import {
   WORK_ORDER_STATUS_OPTIONS,
   formatDate,
+  formatDuration,
+  splitDuration,
   workOrderStatusStyle,
 } from '../../../src/lib/format';
 import type { WorkOrderStatus } from '../../../src/api/types';
@@ -74,7 +76,9 @@ export default function WorkOrderDetailScreen() {
   const save = useMutation(workOrders.update);
 
   // Champs éditables (initialisés une fois depuis le bon chargé).
-  const [duration, setDuration] = useState('');
+  // Durée saisie en heures + minutes (convertie en minutes à l'envoi).
+  const [durationH, setDurationH] = useState('');
+  const [durationM, setDurationM] = useState('');
   const [materials, setMaterials] = useState('');
   const [problem, setProblem] = useState('');
   const [actions, setActions] = useState('');
@@ -89,7 +93,14 @@ export default function WorkOrderDetailScreen() {
   useEffect(() => {
     if (wo && initedFor.current !== wo.id) {
       initedFor.current = wo.id;
-      setDuration(wo.durationMinutes != null ? String(wo.durationMinutes) : '');
+      if (wo.durationMinutes != null) {
+        const { hours, minutes } = splitDuration(wo.durationMinutes);
+        setDurationH(String(hours));
+        setDurationM(String(minutes));
+      } else {
+        setDurationH('');
+        setDurationM('');
+      }
       setMaterials(wo.materialsInternal ?? '');
       setProblem(wo.problemDescription ?? '');
       setActions(wo.actionsTaken ?? '');
@@ -119,12 +130,13 @@ export default function WorkOrderDetailScreen() {
   };
 
   const onSave = async () => {
-    const trimmedDuration = duration.trim();
-    const parsedDuration = trimmedDuration === '' ? null : Number(trimmedDuration);
-    if (parsedDuration != null && !Number.isFinite(parsedDuration)) {
-      Alert.alert('Durée invalide', 'Entrez la durée en minutes (nombre).');
+    const h = durationH.trim() === '' ? 0 : Number(durationH.trim());
+    const m = durationM.trim() === '' ? 0 : Number(durationM.trim());
+    if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || m < 0 || m > 59) {
+      Alert.alert('Durée invalide', 'Heures ≥ 0 et minutes entre 0 et 59.');
       return;
     }
+    const parsedDuration = h > 0 || m > 0 ? Math.floor(h) * 60 + Math.floor(m) : null;
     try {
       await save.mutate({
         id: workOrderId,
@@ -264,13 +276,35 @@ export default function WorkOrderDetailScreen() {
 
       <SectionTitle>Compte-rendu</SectionTitle>
       <Card style={styles.block}>
-        <TextField
-          label="Durée (minutes)"
-          value={duration}
-          onChangeText={setDuration}
-          keyboardType="number-pad"
-          placeholder="ex. 90"
-        />
+        <View style={styles.durationRow}>
+          <View style={styles.durationFieldLeft}>
+            <TextField
+              label="Durée — heures"
+              value={durationH}
+              onChangeText={setDurationH}
+              keyboardType="number-pad"
+              placeholder="0"
+            />
+          </View>
+          <View style={styles.durationField}>
+            <TextField
+              label="Minutes"
+              value={durationM}
+              onChangeText={setDurationM}
+              keyboardType="number-pad"
+              placeholder="00"
+            />
+          </View>
+        </View>
+        <Text style={styles.durationHint}>
+          Total : {formatDuration(
+            (() => {
+              const h = Math.max(0, parseInt(durationH, 10) || 0);
+              const m = Math.min(59, Math.max(0, parseInt(durationM, 10) || 0));
+              return h > 0 || m > 0 ? h * 60 + m : null;
+            })(),
+          )}
+        </Text>
         <TextField
           label="Matériel utilisé"
           value={materials}
@@ -413,6 +447,15 @@ const styles = StyleSheet.create({
   },
   multiline: { minHeight: 92, paddingTop: spacing.md, textAlignVertical: 'top' },
   saveBtn: { marginTop: spacing.xs },
+  durationRow: { flexDirection: 'row' },
+  durationFieldLeft: { flex: 1, marginRight: spacing.md },
+  durationField: { flex: 1 },
+  durationHint: {
+    fontSize: typography.small,
+    color: colors.textMuted,
+    marginTop: -spacing.xs,
+    marginBottom: spacing.md,
+  },
 
   addressRow: {
     flexDirection: 'row',

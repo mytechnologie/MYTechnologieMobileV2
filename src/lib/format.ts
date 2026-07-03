@@ -30,6 +30,27 @@ export function toISODate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * Durée en minutes → affichage « heures + minutes ».
+ * Ex : 150 → '2h30', 60 → '1h00', 45 → '0h45', null → '—'.
+ */
+export function formatDuration(minutes: number | null | undefined): string {
+  if (minutes == null || Number.isNaN(minutes)) return '—';
+  const total = Math.max(0, Math.round(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h}h${String(m).padStart(2, '0')}`;
+}
+
+/** Décompose une durée en minutes vers { hours, minutes } (préremplissage des champs). */
+export function splitDuration(
+  minutes: number | null | undefined,
+): { hours: number; minutes: number } {
+  if (minutes == null || Number.isNaN(minutes)) return { hours: 0, minutes: 0 };
+  const total = Math.max(0, Math.round(minutes));
+  return { hours: Math.floor(total / 60), minutes: total % 60 };
+}
+
 export interface StatusStyle {
   label: string;
   color: string;
