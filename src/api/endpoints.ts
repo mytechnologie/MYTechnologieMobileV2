@@ -13,6 +13,7 @@ import type {
   CreateTimesheetEntryInput,
   LoginInput,
   LoginResult,
+  ProjectAttachment,
   ProjectDetail,
   ProjectListItem,
   ProjectTask,
@@ -107,6 +108,17 @@ export const projectTasks = {
       details: input.details,
       status: input.status,
     }),
+};
+
+/* --------------------------- project attachments --------------------------- */
+/**
+ * Pièces jointes de projet = plans/documents (R2). `list` renvoie chaque
+ * fichier avec une `fileUrl` presigned fraîche (1h) → affichage direct des plans
+ * (images inline, PDF via lien). fileType ∈ image/*, application/pdf, …
+ */
+export const projectAttachments = {
+  list: (projectId: string): Promise<ProjectAttachment[]> =>
+    trpc.projectAttachments.list.query({ projectId: Number(projectId) }),
 };
 
 /* -------------------------------- schedule --------------------------------- */

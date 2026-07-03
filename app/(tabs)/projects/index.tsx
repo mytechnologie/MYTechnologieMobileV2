@@ -1,30 +1,40 @@
 /**
- * Liste des projets : nom, statut, client (clientName), avancement calculé
- * (_progress), nombre de tâches et heures (cumul / budget).
+ * Projets — adaptatif :
+ * - téléphone : liste qui navigue vers le détail (pile),
+ * - iPad (large) : master-détail (liste à gauche, détail projet à droite avec
+ *   plans + arbre de tâches), réutilisant la vue partagée ProjectDetailView.
  */
+import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import {
-  Badge,
-  Card,
-  ProgressBar,
-} from '../../../src/components/Primitives';
+import { Badge, Card, ProgressBar } from '../../../src/components/Primitives';
 import { EmptyState, ErrorState, LoadingState } from '../../../src/components/States';
+import { MasterDetail } from '../../../src/components/MasterDetail';
+import { ProjectDetailView } from '../../../src/views/ProjectDetailView';
 import { projects as projectsApi } from '../../../src/api/endpoints';
 import { useQuery } from '../../../src/api/useApi';
+import { useResponsive } from '../../../src/lib/responsive';
 import { projectStatusStyle } from '../../../src/lib/format';
 import { formatHours } from '../../../src/lib/time';
 import type { ProjectListItem } from '../../../src/api/types';
 import { colors, spacing, typography } from '../../../src/theme';
 
-function ProjectRow({ item, onPress }: { item: ProjectListItem; onPress: () => void }) {
+function ProjectRow({
+  item,
+  selected,
+  onPress,
+}: {
+  item: ProjectListItem;
+  selected: boolean;
+  onPress: () => void;
+}) {
   const status = projectStatusStyle(item.status);
   const progress = item._progress ?? 0;
   const budgetHours = item._budgetHours ?? null;
   const loggedHours = item._hoursLogged ?? 0;
   return (
-    <Card style={styles.card} onPress={onPress}>
+    <Card style={selected ? { ...styles.card, ...styles.cardSelected } : styles.card} onPress={onPress}>
       <View style={styles.rowTop}>
         <Text style={styles.name} numberOfLines={1}>
           {item.name}
@@ -64,12 +74,15 @@ function ProjectRow({ item, onPress }: { item: ProjectListItem; onPress: () => v
   );
 }
 
-export default function ProjectsListScreen() {
-  const router = useRouter();
-  const { data, loading, error, refetch, refreshing } = useQuery(
-    () => projectsApi.list(),
-    [],
-  );
+/** Liste réutilisable (téléphone plein écran OU panneau maître iPad). */
+function ProjectsList({
+  selectedId,
+  onSelect,
+}: {
+  selectedId?: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const { data, loading, error, refetch, refreshing } = useQuery(() => projectsApi.list(), []);
 
   if (loading) return <LoadingState label="Chargement des projets…" />;
   if (error) return <ErrorState message={error.message} onRetry={refetch} />;
@@ -84,7 +97,8 @@ export default function ProjectsListScreen() {
       renderItem={({ item }) => (
         <ProjectRow
           item={item}
-          onPress={() => router.push(`/(tabs)/projects/${item.id}`)}
+          selected={selectedId === String(item.id)}
+          onPress={() => onSelect(String(item.id))}
         />
       )}
       ListEmptyComponent={
@@ -98,9 +112,28 @@ export default function ProjectsListScreen() {
   );
 }
 
+export default function ProjectsScreen() {
+  const router = useRouter();
+  const { twoPane } = useResponsive();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  if (twoPane) {
+    return (
+      <MasterDetail
+        master={<ProjectsList selectedId={selectedId} onSelect={setSelectedId} />}
+        detail={selectedId ? <ProjectDetailView id={selectedId} embedded /> : null}
+        empty={{ icon: 'briefcase-outline', message: 'Sélectionnez un projet.' }}
+      />
+    );
+  }
+
+  return <ProjectsList onSelect={(id) => router.push(`/projects/${id}`)} />;
+}
+
 const styles = StyleSheet.create({
   list: { padding: spacing.lg, gap: spacing.md, flexGrow: 1 },
   card: { gap: spacing.sm },
+  cardSelected: { borderColor: colors.navy, borderWidth: 2 },
   rowTop: {
     flexDirection: 'row',
     alignItems: 'center',

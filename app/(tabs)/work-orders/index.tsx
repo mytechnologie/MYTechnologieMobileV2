@@ -1,15 +1,21 @@
 /**
- * Liste des bons de travail : ticketNumber, serviceType (titre), statut,
- * client (résolu via clients.list), date de service, adresse (location).
+ * Bons de travail — adaptatif :
+ * - téléphone : liste qui navigue vers le détail (pile),
+ * - iPad (large) : master-détail plein écran (liste à gauche, détail éditable à
+ *   droite), en réutilisant la MÊME vue de détail (src/views/WorkOrderDetailView).
  */
+import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Badge, Card } from '../../../src/components/Primitives';
 import { EmptyState, ErrorState, LoadingState } from '../../../src/components/States';
+import { MasterDetail } from '../../../src/components/MasterDetail';
+import { WorkOrderDetailView } from '../../../src/views/WorkOrderDetailView';
 import { workOrders } from '../../../src/api/endpoints';
 import { useQuery } from '../../../src/api/useApi';
 import { useClientMap } from '../../../src/api/useClientMap';
+import { useResponsive } from '../../../src/lib/responsive';
 import { formatDate, workOrderStatusStyle } from '../../../src/lib/format';
 import type { WorkOrderListItem } from '../../../src/api/types';
 import { colors, spacing, typography } from '../../../src/theme';
@@ -17,15 +23,17 @@ import { colors, spacing, typography } from '../../../src/theme';
 function WorkOrderRow({
   item,
   clientName,
+  selected,
   onPress,
 }: {
   item: WorkOrderListItem;
   clientName: string;
+  selected: boolean;
   onPress: () => void;
 }) {
   const status = workOrderStatusStyle(item.status);
   return (
-    <Card style={styles.card} onPress={onPress}>
+    <Card style={selected ? { ...styles.card, ...styles.cardSelected } : styles.card} onPress={onPress}>
       <View style={styles.rowTop}>
         <Text style={styles.number}>#{item.ticketNumber}</Text>
         <Badge label={status.label} color={status.color} bg={status.bg} />
@@ -39,14 +47,6 @@ function WorkOrderRow({
           {clientName}
         </Text>
       </View>
-      {item.location ? (
-        <View style={styles.metaLine}>
-          <Ionicons name="location-outline" size={14} color={colors.textMuted} />
-          <Text style={styles.meta} numberOfLines={1}>
-            {item.location}
-          </Text>
-        </View>
-      ) : null}
       {item.serviceDate ? (
         <View style={styles.metaLine}>
           <Ionicons name="calendar-outline" size={14} color={colors.textMuted} />
@@ -57,13 +57,16 @@ function WorkOrderRow({
   );
 }
 
-export default function WorkOrdersListScreen() {
-  const router = useRouter();
+/** Liste réutilisable (téléphone plein écran OU panneau maître iPad). */
+function WorkOrdersList({
+  selectedId,
+  onSelect,
+}: {
+  selectedId?: string | null;
+  onSelect: (id: string) => void;
+}) {
   const { clientName } = useClientMap();
-  const { data, loading, error, refetch, refreshing } = useQuery(
-    () => workOrders.list(),
-    [],
-  );
+  const { data, loading, error, refetch, refreshing } = useQuery(() => workOrders.list(), []);
 
   if (loading) return <LoadingState label="Chargement des bons…" />;
   if (error) return <ErrorState message={error.message} onRetry={refetch} />;
@@ -79,7 +82,8 @@ export default function WorkOrdersListScreen() {
         <WorkOrderRow
           item={item}
           clientName={clientName(item.clientId)}
-          onPress={() => router.push(`/work-orders/${item.id}`)}
+          selected={selectedId === String(item.id)}
+          onPress={() => onSelect(String(item.id))}
         />
       )}
       ListEmptyComponent={
@@ -93,9 +97,28 @@ export default function WorkOrdersListScreen() {
   );
 }
 
+export default function WorkOrdersScreen() {
+  const router = useRouter();
+  const { twoPane } = useResponsive();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  if (twoPane) {
+    return (
+      <MasterDetail
+        master={<WorkOrdersList selectedId={selectedId} onSelect={setSelectedId} />}
+        detail={selectedId ? <WorkOrderDetailView id={selectedId} embedded /> : null}
+        empty={{ icon: 'construct-outline', message: 'Sélectionnez un bon de travail.' }}
+      />
+    );
+  }
+
+  return <WorkOrdersList onSelect={(id) => router.push(`/work-orders/${id}`)} />;
+}
+
 const styles = StyleSheet.create({
   list: { padding: spacing.lg, gap: spacing.md, flexGrow: 1 },
   card: { gap: spacing.xs },
+  cardSelected: { borderColor: colors.navy, borderWidth: 2 },
   rowTop: {
     flexDirection: 'row',
     alignItems: 'center',

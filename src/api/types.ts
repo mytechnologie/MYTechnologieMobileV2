@@ -242,6 +242,21 @@ export interface ProjectTask {
   comments?: unknown[];
 }
 
+/**
+ * Pièce jointe / plan de projet (project_attachments). `fileUrl` est une URL
+ * presigned fraîche renvoyée par le backend. `fileType` = mime (image/*, pdf…).
+ */
+export interface ProjectAttachment {
+  id: number;
+  projectId: number;
+  fileName: string;
+  fileType: string;
+  fileUrl: string;
+  category?: string | null;
+  description?: string | null;
+  fileSizeBytes?: number | null;
+}
+
 /** Mise à jour d'une tâche (on réutilise `details` comme notes terrain). */
 export interface ProjectTaskUpdateInput {
   /** Id de la tâche. */
