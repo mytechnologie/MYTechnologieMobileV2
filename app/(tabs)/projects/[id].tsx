@@ -5,9 +5,10 @@
  * Note : projects.getById renvoie les colonnes projects + clientName, SANS les
  * champs calculés de la liste. On recalcule donc l'avancement à partir des tâches.
  */
-import { useLocalSearchParams, useNavigation } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import {
   Badge,
   Card,
@@ -51,7 +52,11 @@ function toNumber(value: string | number | null | undefined): number | null {
 export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
+  const router = useRouter();
   const projectId = String(id);
+
+  const openTask = (taskId: number) =>
+    router.push(`/projects/task?projectId=${projectId}&taskId=${taskId}`);
 
   const projectQ = useQuery(() => projectsApi.getById(projectId), [projectId]);
   const tasksQ = useQuery(() => projectTasks.listByProject(projectId), [projectId]);
@@ -138,7 +143,7 @@ export default function ProjectDetailScreen() {
       ) : (
         <View style={styles.taskList}>
           {(tasksQ.data ?? []).map((t) => (
-            <TaskRow key={t.id} task={t} depth={0} />
+            <TaskRow key={t.id} task={t} depth={0} onOpen={openTask} />
           ))}
         </View>
       )}
@@ -146,13 +151,23 @@ export default function ProjectDetailScreen() {
   );
 }
 
-function TaskRow({ task, depth }: { task: ProjectTask; depth: number }) {
+function TaskRow({
+  task,
+  depth,
+  onOpen,
+}: {
+  task: ProjectTask;
+  depth: number;
+  onOpen: (taskId: number) => void;
+}) {
   const s = taskStatusStyle(task.status);
   const p = taskPriorityStyle(task.priority);
+  const checklist = task.checklistItems ?? [];
+  const done = checklist.filter((c) => c.isCompleted).length;
   return (
     <>
       <View style={depth > 0 ? { marginLeft: depth * spacing.lg } : undefined}>
-        <Card style={styles.taskCard}>
+        <Card style={styles.taskCard} onPress={() => onOpen(task.id)}>
           <View style={styles.taskTop}>
             <Text style={styles.taskName} numberOfLines={2}>
               {task.title}
@@ -165,15 +180,18 @@ function TaskRow({ task, depth }: { task: ProjectTask; depth: number }) {
               {task.spaceLabel ? (
                 <Text style={styles.muted}>{task.spaceLabel}</Text>
               ) : null}
+              {checklist.length > 0 ? (
+                <Text style={styles.muted}>
+                  ☑ {done}/{checklist.length}
+                </Text>
+              ) : null}
             </View>
-            {task.progress > 0 ? (
-              <Text style={styles.muted}>{Math.round(task.progress)} %</Text>
-            ) : null}
+            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
           </View>
         </Card>
       </View>
       {task.children?.map((child) => (
-        <TaskRow key={child.id} task={child} depth={depth + 1} />
+        <TaskRow key={child.id} task={child} depth={depth + 1} onOpen={onOpen} />
       ))}
     </>
   );

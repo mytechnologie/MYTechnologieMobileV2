@@ -16,7 +16,10 @@ import type {
   ProjectDetail,
   ProjectListItem,
   ProjectTask,
+  ProjectTaskUpdateInput,
   RequestOtpInput,
+  ScheduleInput,
+  ScheduleItem,
   RequestOtpResult,
   ResendLoginOtpInput,
   ResendLoginOtpResult,
@@ -81,6 +84,54 @@ export const projectTasks = {
   // projectTasks.list attend { projectId: number } et renvoie un ARBRE de tâches.
   listByProject: (projectId: string): Promise<ProjectTask[]> =>
     trpc.projectTasks.list.query({ projectId: Number(projectId) }),
+
+  // Coche/décoche un item de checklist.
+  toggleChecklistItem: (input: {
+    projectId: string;
+    taskId: number;
+    itemId: number;
+    isCompleted: boolean;
+  }): Promise<{ success: boolean }> =>
+    trpc.projectTasks.toggleChecklistItem.mutate({
+      projectId: Number(input.projectId),
+      taskId: input.taskId,
+      itemId: input.itemId,
+      isCompleted: input.isCompleted,
+    }),
+
+  // Mise à jour d'une tâche (on utilise `details` comme notes terrain).
+  update: (input: ProjectTaskUpdateInput): Promise<{ success: boolean }> =>
+    trpc.projectTasks.update.mutate({
+      id: input.taskId,
+      projectId: Number(input.projectId),
+      details: input.details,
+      status: input.status,
+    }),
+};
+
+/* -------------------------------- schedule --------------------------------- */
+/**
+ * « Cédule » = calendar_schedules (blocs d'horaire de travail par utilisateur),
+ * PAS des rendez-vous client. Champs réels : userId, workDate (YYYY-MM-DD),
+ * startTime/endTime (HH:MM), title, notes, color, status.
+ * Un non-admin ne peut créer/modifier que ses propres blocs (backend enforce).
+ */
+export const schedule = {
+  list: (input?: {
+    startDate?: string;
+    endDate?: string;
+    userId?: number;
+  }): Promise<ScheduleItem[]> => trpc.calendar.list.query(input ?? {}),
+
+  create: (input: ScheduleInput): Promise<{ id: number }> =>
+    trpc.calendar.create.mutate(input),
+
+  // ⚠️ update backend attend { id, data: Partial<...> }.
+  update: (id: number, data: Partial<ScheduleInput>): Promise<{ success: boolean }> =>
+    trpc.calendar.update.mutate({ id, data }),
+
+  remove: (id: number): Promise<{ success: boolean }> =>
+    trpc.calendar.delete.mutate({ id }),
 };
 
 /* ------------------------------ work orders -------------------------------- */

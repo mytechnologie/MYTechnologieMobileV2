@@ -242,6 +242,16 @@ export interface ProjectTask {
   comments?: unknown[];
 }
 
+/** Mise à jour d'une tâche (on réutilise `details` comme notes terrain). */
+export interface ProjectTaskUpdateInput {
+  /** Id de la tâche. */
+  taskId: number;
+  /** Id du projet (string côté écran) → converti en number. */
+  projectId: string;
+  details?: string | null;
+  status?: ProjectTaskStatus;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Bons de travail (table `work_orders`)                                      */
 /* -------------------------------------------------------------------------- */
@@ -362,4 +372,48 @@ export interface UpdateTimesheetEntryInput extends CreateTimesheetEntryInput {
 export interface SubmitTimesheetEntriesInput {
   /** Ids des entrées brouillon à soumettre. */
   ids: string[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cédule (calendar_schedules — blocs d'horaire de travail par utilisateur)   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⚠️ Réalité backend : `calendar.*` gère des blocs d'HORAIRE de travail
+ * (calendar_schedules), pas des rendez-vous client. Il n'y a ni type, ni
+ * clientId, ni location — seulement un titre, une date, une plage horaire,
+ * des notes et une couleur, rattachés à un utilisateur.
+ */
+export interface ScheduleItem {
+  id: number;
+  userId: number;
+  /** Nom de l'utilisateur (jointure backend). */
+  userName?: string | null;
+  /** YYYY-MM-DD. */
+  workDate: string;
+  /** HH:MM. */
+  startTime: string;
+  /** HH:MM. */
+  endTime: string;
+  title: string;
+  notes?: string | null;
+  color?: string | null;
+  status?: string | null;
+  createdAt?: ApiDate;
+  updatedAt?: ApiDate;
+}
+
+/** Entrée de création/màj d'un bloc d'horaire. userId requis à la création. */
+export interface ScheduleInput {
+  userId: number;
+  /** YYYY-MM-DD. */
+  workDate: string;
+  /** HH:MM. */
+  startTime: string;
+  /** HH:MM. */
+  endTime: string;
+  title: string;
+  notes?: string | null;
+  color?: string | null;
+  status?: string;
 }

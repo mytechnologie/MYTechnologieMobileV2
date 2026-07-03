@@ -7,7 +7,7 @@
  */
 import type { AuthUser } from '../api/types';
 
-export type Section = 'home' | 'projects' | 'work-orders' | 'timesheet';
+export type Section = 'home' | 'projects' | 'work-orders' | 'timesheet' | 'schedule';
 
 /** Rôles « élevés » ayant accès à toutes les sections. */
 const ELEVATED_ROLES = ['admin', 'manager', 'super_admin'] as const;
@@ -16,6 +16,7 @@ const ELEVATED_ROLES = ['admin', 'manager', 'super_admin'] as const;
 const SECTION_PERMISSIONS: Record<Section, string[]> = {
   home: [],
   timesheet: [],
+  schedule: [],
   projects: ['projects.read', 'projects.view', 'projects'],
   'work-orders': ['workOrders.read', 'workOrders.view', 'workOrders'],
 };
@@ -28,8 +29,8 @@ export function canAccess(
   section: Section,
   user: Pick<AuthUser, 'role' | 'permissions'>,
 ): boolean {
-  // Accueil et saisie d'heures : accessibles à tous les utilisateurs connectés.
-  if (section === 'home' || section === 'timesheet') return true;
+  // Accueil, saisie d'heures et cédule : accessibles à tous les utilisateurs connectés.
+  if (section === 'home' || section === 'timesheet' || section === 'schedule') return true;
 
   // Rôles élevés : accès complet.
   if (isElevated(user)) return true;
@@ -43,6 +44,6 @@ export function canAccess(
 export function visibleSections(
   user: Pick<AuthUser, 'role' | 'permissions'>,
 ): Section[] {
-  const all: Section[] = ['home', 'projects', 'work-orders', 'timesheet'];
+  const all: Section[] = ['home', 'projects', 'work-orders', 'schedule', 'timesheet'];
   return all.filter((s) => canAccess(s, user));
 }

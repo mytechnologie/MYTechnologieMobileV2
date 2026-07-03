@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { colors, typography } from '../../../src/theme';
 
-export default function ProjectsLayout() {
+export default function ScheduleLayout() {
   return (
     <Stack
       screenOptions={{
@@ -11,9 +11,8 @@ export default function ProjectsLayout() {
         contentStyle: { backgroundColor: colors.background },
       }}
     >
-      <Stack.Screen name="index" options={{ title: 'Projets' }} />
-      <Stack.Screen name="[id]" options={{ title: 'Projet' }} />
-      <Stack.Screen name="task" options={{ title: 'Tâche' }} />
+      <Stack.Screen name="index" options={{ title: 'Cédule' }} />
+      <Stack.Screen name="form" options={{ title: 'Horaire' }} />
     </Stack>
   );
 }
