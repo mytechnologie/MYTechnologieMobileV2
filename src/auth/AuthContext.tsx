@@ -158,7 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const verifyAdminOtp = useCallback(
     async (challengeId: string, code: string) => {
-      const res = await auth.verifyLoginOtp({ challengeId, code });
+      const res = await auth.verifyLoginOtp({ challengeId, otpCode: code });
       await applySession({
         user: res.user,
         auth: adminAuthFromToken(res.token),

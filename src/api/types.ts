@@ -109,7 +109,7 @@ export type LoginResult = LoginDirectResult | LoginOtpRequiredResult;
 
 export interface VerifyLoginOtpInput {
   challengeId: string;
-  code: string;
+  otpCode: string;
 }
 export interface VerifyLoginOtpResult {
   token: string;
