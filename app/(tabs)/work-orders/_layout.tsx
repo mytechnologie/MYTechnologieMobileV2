@@ -12,6 +12,7 @@ export default function WorkOrdersLayout() {
       }}
     >
       <Stack.Screen name="index" options={{ title: 'Bons de travail' }} />
+      <Stack.Screen name="new" options={{ title: 'Nouveau bon' }} />
       <Stack.Screen name="[id]" options={{ title: 'Bon de travail' }} />
     </Stack>
   );

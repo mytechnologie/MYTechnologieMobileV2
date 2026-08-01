@@ -11,6 +11,8 @@ import type {
   ChangeWorkOrderStatusInput,
   ClientListItem,
   CreateTimesheetEntryInput,
+  CreateWorkOrderInput,
+  CreateWorkOrderResult,
   LoginInput,
   LoginResult,
   PlanAnnotation,
@@ -23,6 +25,7 @@ import type {
   RequestOtpInput,
   ScheduleInput,
   ScheduleItem,
+  ServiceTypeItem,
   RequestOtpResult,
   ResendLoginOtpInput,
   ResendLoginOtpResult,
@@ -31,6 +34,7 @@ import type {
   UpdateTimesheetEntryInput,
   VerifyLoginOtpInput,
   VerifyLoginOtpResult,
+  UserListItem,
   VerifyOtpInput,
   VerifyOtpResult,
   WorkOrderDetail,
@@ -117,8 +121,27 @@ export const auth = {
 export const clients = {
   // clients.list → { items, total }. Le nom du client n'étant pas dans work_orders,
   // on charge cette liste pour construire un map clientId→name (comme le web).
-  list: async (): Promise<ClientListItem[]> =>
-    unwrapItems<ClientListItem>(await trpc.clients.list.query()),
+  // ⚠️ limit par défaut du backend tronque (>150 clients) : on demande 500 pour
+  //    avoir TOUS les clients (map complet + sélecteur de création de BT).
+  list: async (input?: { search?: string; limit?: number }): Promise<ClientListItem[]> =>
+    unwrapItems<ClientListItem>(
+      await trpc.clients.list.query({ limit: 500, ...(input ?? {}) }),
+    ),
+};
+
+/* --------------------------------- users ----------------------------------- */
+
+export const users = {
+  // users.list → ligne users complète (+ clientIds). Requiert `users.view`
+  // (rôles élevés) ; l'appelant doit dégrader proprement si l'API refuse.
+  list: (): Promise<UserListItem[]> => trpc.users.list.query(),
+};
+
+/* ------------------------------ service types ------------------------------ */
+
+export const serviceTypes = {
+  // serviceTypes.listActive → types de service actifs (id + name).
+  listActive: (): Promise<ServiceTypeItem[]> => trpc.serviceTypes.listActive.query(),
 };
 
 /* -------------------------------- projects --------------------------------- */
@@ -233,6 +256,10 @@ export const workOrders = {
     unwrapItems<WorkOrderListItem>(await trpc.workOrders.list.query()),
   getById: (id: string): Promise<WorkOrderDetail> =>
     trpc.workOrders.get.query({ id: Number(id) }),
+  // Création (techOrAdmin + permission work_orders.create). ticketNumber généré
+  // côté backend ; technicianId omis → le créateur est assigné. Renvoie le BT créé.
+  create: (input: CreateWorkOrderInput): Promise<CreateWorkOrderResult> =>
+    trpc.workOrders.create.mutate(input),
   // Le backend attend id: number et renvoie { success: true }.
   changeStatus: (input: ChangeWorkOrderStatusInput): Promise<{ success: boolean }> =>
     trpc.workOrders.changeStatus.mutate({ id: Number(input.id), status: input.status }),

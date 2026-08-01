@@ -146,6 +146,35 @@ export interface ClientListItem {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Utilisateurs (users.list — assignation technicien)                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * users.list renvoie la ligne `users` complète (+ clientIds). On ne type que ce
+ * dont l'app a besoin pour l'assignation d'un bon de travail.
+ * ⚠️ Requiert la permission `users.view` (rôles élevés) — dégrader si refusé.
+ */
+export interface UserListItem {
+  id: number;
+  name?: string | null;
+  email?: string | null;
+  role: UserRole;
+  isActive?: boolean;
+  phone?: string | null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Types de service (serviceTypes.listActive)                                 */
+/* -------------------------------------------------------------------------- */
+
+/** Ligne `service_types` active. `serviceType` du BT stocke le `name` (string). */
+export interface ServiceTypeItem {
+  id: number;
+  name: string;
+  isActive?: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Projets (table `projects`)                                                 */
 /* -------------------------------------------------------------------------- */
 
@@ -358,20 +387,52 @@ export interface ChangeWorkOrderStatusInput {
 }
 
 /**
- * Champs éditables terrain d'un bon de travail (workOrders.update).
- * ⚠️ Réalité backend : pour le rôle `technician`, SEULS problemDescription,
- * actionsTaken et materialsInternal sont persistés (et si status ∈
- * {en_attente, assigne, en_cours} + fenêtre 7 jours). durationMinutes et
- * followUp ne sont enregistrés que pour admin/manager.
+ * Champs éditables d'un bon de travail (workOrders.update).
+ * ⚠️ Réalité backend :
+ * - admin/manager : TOUS les champs ci-dessous sont persistés ;
+ * - `technician` : SEULS problemDescription, actionsTaken et materialsInternal
+ *   sont persistés (et si status ∈ {en_attente, assigne, en_cours} + fenêtre
+ *   7 jours). Les autres champs sont ignorés côté backend pour ce rôle.
  */
 export interface WorkOrderUpdateInput {
   /** Id (string côté écran) → converti en number vers le backend. */
   id: string;
+  /** Réservés aux rôles élevés (admin/manager). */
+  clientId?: number;
+  technicianId?: number | null;
+  serviceType?: string | null;
+  location?: string | null;
+  /** superjson restitue les Date côté backend (colonne `date`). */
+  serviceDate?: Date | null;
   durationMinutes?: number | null;
   problemDescription?: string | null;
   actionsTaken?: string | null;
   materialsInternal?: string | null;
   followUp?: string | null;
+}
+
+/**
+ * Création d'un bon de travail (workOrders.create).
+ * `clientId` requis ; `ticketNumber` est généré automatiquement côté backend.
+ * `technicianId` omis → le backend assigne le créateur.
+ */
+export interface CreateWorkOrderInput {
+  clientId: number;
+  technicianId?: number | null;
+  serviceType?: string | null;
+  location?: string | null;
+  serviceDate?: Date | null;
+  durationMinutes?: number | null;
+  problemDescription?: string | null;
+  actionsTaken?: string | null;
+  followUp?: string | null;
+  materialsInternal?: string | null;
+}
+
+/** Réponse de workOrders.create. */
+export interface CreateWorkOrderResult {
+  success: boolean;
+  workOrder?: WorkOrder | null;
 }
 
 /** getPhotoUrls → { [photoId]: urlSignée }. */

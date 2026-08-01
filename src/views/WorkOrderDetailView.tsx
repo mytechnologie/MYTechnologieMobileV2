@@ -1,17 +1,18 @@
 /**
- * Détail « travaillable » d'un bon de travail (technicien terrain) :
+ * Détail « travaillable » d'un bon de travail :
+ * - édition de TOUS les champs via le formulaire partagé (WorkOrderForm) —
+ *   complet pour admin/manager, restreint au compte-rendu pour un technicien,
  * - adresse cliquable → Google Maps,
- * - saisie durée / matériel / problème / actions / suivi,
  * - photos avant/après (caméra ou galerie, upload multipart REST + suppression),
- * - changement de statut (workflow) et sauvegarde.
+ * - changement de statut (workflow).
  *
  * ⚠️ Réalité backend (workOrders.update) : pour le rôle `technician`, seuls
  * problemDescription, actionsTaken et materialsInternal sont persistés (et si le
- * statut est en_attente/assigne/en_cours, fenêtre 7 jours). durationMinutes et
- * followUp ne sont enregistrés que pour admin/manager. On prévient l'utilisateur.
+ * statut est en_attente/assigne/en_cours, fenêtre 7 jours). Le formulaire prévient
+ * l'utilisateur ; on n'envoie donc que ces champs pour ce rôle.
  */
 import { useNavigation } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -23,17 +24,16 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-// import * as ImagePicker from 'expo-image-picker';
 import {
   Badge,
   Button,
   Card,
   InfoRow,
   SectionTitle,
-  TextField,
 } from '../components/Primitives';
 import { Screen } from '../components/Screen';
 import { ErrorState, LoadingState } from '../components/States';
+import { WorkOrderForm, type WorkOrderFormValues } from '../components/WorkOrderForm';
 import { workOrders } from '../api/endpoints';
 import { useMutation, useQuery } from '../api/useApi';
 import { useClientMap } from '../api/useClientMap';
@@ -42,8 +42,6 @@ import { isElevated } from '../auth/access';
 import {
   WORK_ORDER_STATUS_OPTIONS,
   formatDate,
-  formatDuration,
-  splitDuration,
   workOrderStatusStyle,
 } from '../lib/format';
 import type { WorkOrderStatus } from '../api/types';
@@ -81,38 +79,10 @@ export function WorkOrderDetailView({
   const changeStatus = useMutation(workOrders.changeStatus);
   const save = useMutation(workOrders.update);
 
-  // Champs éditables (initialisés une fois depuis le bon chargé).
-  // Durée saisie en heures + minutes (convertie en minutes à l'envoi).
-  const [durationH, setDurationH] = useState('');
-  const [durationM, setDurationM] = useState('');
-  const [materials, setMaterials] = useState('');
-  const [problem, setProblem] = useState('');
-  const [actions, setActions] = useState('');
-  const [followUp, setFollowUp] = useState('');
-  const initedFor = useRef<number | null>(null);
-
   const [pendingStatus, setPendingStatus] = useState<WorkOrderStatus | null>(null);
   const [uploading, setUploading] = useState(false);
 
   const wo = woQ.data;
-
-  useEffect(() => {
-    if (wo && initedFor.current !== wo.id) {
-      initedFor.current = wo.id;
-      if (wo.durationMinutes != null) {
-        const { hours, minutes } = splitDuration(wo.durationMinutes);
-        setDurationH(String(hours));
-        setDurationM(String(minutes));
-      } else {
-        setDurationH('');
-        setDurationM('');
-      }
-      setMaterials(wo.materialsInternal ?? '');
-      setProblem(wo.problemDescription ?? '');
-      setActions(wo.actionsTaken ?? '');
-      setFollowUp(wo.followUp ?? '');
-    }
-  }, [wo]);
 
   useEffect(() => {
     if (!embedded && wo?.ticketNumber) {
@@ -127,38 +97,42 @@ export function WorkOrderDetailView({
 
   const status = workOrderStatusStyle(wo.status);
 
-  const openMaps = () => {
-    if (!wo.location) return;
-    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(wo.location)}`;
+  const openMaps = (address: string) => {
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
     Linking.openURL(url).catch(() =>
       Alert.alert('Erreur', "Impossible d'ouvrir la carte."),
     );
   };
 
-  const onSave = async () => {
-    const h = durationH.trim() === '' ? 0 : Number(durationH.trim());
-    const m = durationM.trim() === '' ? 0 : Number(durationM.trim());
-    if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || m < 0 || m > 59) {
-      Alert.alert('Durée invalide', 'Heures ≥ 0 et minutes entre 0 et 59.');
-      return;
-    }
-    const parsedDuration = h > 0 || m > 0 ? Math.floor(h) * 60 + Math.floor(m) : null;
+  const onSubmitEdit = async (v: WorkOrderFormValues) => {
     try {
-      await save.mutate({
-        id: workOrderId,
-        durationMinutes: parsedDuration,
-        materialsInternal: materials.trim() || null,
-        problemDescription: problem.trim() || null,
-        actionsTaken: actions.trim() || null,
-        followUp: followUp.trim() || null,
-      });
+      if (elevated) {
+        await save.mutate({
+          id: workOrderId,
+          clientId: v.clientId ?? undefined,
+          technicianId: v.technicianId,
+          serviceType: v.serviceType,
+          location: v.location,
+          serviceDate: v.serviceDate,
+          durationMinutes: v.durationMinutes,
+          materialsInternal: v.materialsInternal,
+          problemDescription: v.problemDescription,
+          actionsTaken: v.actionsTaken,
+          followUp: v.followUp,
+        });
+      } else {
+        // Technicien : le backend n'accepte que ces trois champs.
+        await save.mutate({
+          id: workOrderId,
+          problemDescription: v.problemDescription,
+          actionsTaken: v.actionsTaken,
+          materialsInternal: v.materialsInternal,
+        });
+      }
       woQ.refetch();
       Alert.alert('Enregistré', 'Le bon de travail a été mis à jour.');
     } catch (e) {
-      Alert.alert(
-        'Erreur',
-        e instanceof Error ? e.message : 'Enregistrement impossible.',
-      );
+      Alert.alert('Erreur', e instanceof Error ? e.message : 'Enregistrement impossible.');
     }
   };
 
@@ -263,99 +237,43 @@ export function WorkOrderDetailView({
         <Text style={styles.number}>#{wo.ticketNumber}</Text>
       </Card>
 
-      <SectionTitle>Informations</SectionTitle>
-      <Card style={styles.block}>
-        <InfoRow label="Client" value={clientName(wo.clientId)} />
-        {wo.serviceDate ? (
-          <InfoRow label="Date de service" value={formatDate(wo.serviceDate)} />
-        ) : null}
-        {wo.location ? (
-          <Pressable onPress={openMaps} style={styles.addressRow} accessibilityRole="button">
-            <View style={styles.addressText}>
-              <Text style={styles.addressLabel}>Adresse</Text>
-              <Text style={styles.addressValue}>{wo.location}</Text>
-            </View>
-            <Ionicons name="navigate-circle" size={26} color={colors.navy} />
-          </Pressable>
-        ) : null}
-      </Card>
+      {/* Rappel lecture seule pour le technicien (le formulaire ne montre pas
+          client/date/adresse pour ce rôle). Les rôles élevés éditent tout via le
+          formulaire, adresse → Maps incluse. */}
+      {!elevated ? (
+        <>
+          <SectionTitle>Informations</SectionTitle>
+          <Card style={styles.block}>
+            <InfoRow label="Client" value={clientName(wo.clientId)} />
+            {wo.serviceDate ? (
+              <InfoRow label="Date de service" value={formatDate(wo.serviceDate)} />
+            ) : null}
+            {wo.location ? (
+              <Pressable
+                onPress={() => openMaps(wo.location as string)}
+                style={styles.addressRow}
+                accessibilityRole="button"
+              >
+                <View style={styles.addressText}>
+                  <Text style={styles.addressLabel}>Adresse</Text>
+                  <Text style={styles.addressValue}>{wo.location}</Text>
+                </View>
+                <Ionicons name="navigate-circle" size={26} color={colors.navy} />
+              </Pressable>
+            ) : null}
+          </Card>
+        </>
+      ) : null}
 
-      <SectionTitle>Compte-rendu</SectionTitle>
-      <Card style={styles.block}>
-        <View style={styles.durationRow}>
-          <View style={styles.durationFieldLeft}>
-            <TextField
-              label="Durée — heures"
-              value={durationH}
-              onChangeText={setDurationH}
-              keyboardType="number-pad"
-              placeholder="0"
-            />
-          </View>
-          <View style={styles.durationField}>
-            <TextField
-              label="Minutes"
-              value={durationM}
-              onChangeText={setDurationM}
-              keyboardType="number-pad"
-              placeholder="00"
-            />
-          </View>
-        </View>
-        <Text style={styles.durationHint}>
-          Total : {formatDuration(
-            (() => {
-              const h = Math.max(0, parseInt(durationH, 10) || 0);
-              const m = Math.min(59, Math.max(0, parseInt(durationM, 10) || 0));
-              return h > 0 || m > 0 ? h * 60 + m : null;
-            })(),
-          )}
-        </Text>
-        <TextField
-          label="Matériel utilisé"
-          value={materials}
-          onChangeText={setMaterials}
-          placeholder="Matériel posé / consommé…"
-          multiline
-          style={styles.multiline}
-        />
-        <TextField
-          label="Problème rapporté"
-          value={problem}
-          onChangeText={setProblem}
-          placeholder="Description du problème…"
-          multiline
-          style={styles.multiline}
-        />
-        <TextField
-          label="Actions réalisées"
-          value={actions}
-          onChangeText={setActions}
-          placeholder="Interventions effectuées…"
-          multiline
-          style={styles.multiline}
-        />
-        <TextField
-          label="Suivi"
-          value={followUp}
-          onChangeText={setFollowUp}
-          placeholder="À prévoir / retour requis…"
-          multiline
-          style={styles.multiline}
-        />
-        {!elevated ? (
-          <Text style={styles.note}>
-            Note : votre rôle enregistre le problème, les actions et le matériel. La
-            durée et le suivi ne sont sauvegardés que par un gestionnaire.
-          </Text>
-        ) : null}
-        <Button
-          title="Enregistrer"
-          onPress={onSave}
-          loading={save.loading}
-          style={styles.saveBtn}
-        />
-      </Card>
+      <WorkOrderForm
+        key={wo.id}
+        mode="edit"
+        elevated={elevated}
+        initial={wo}
+        submitting={save.loading}
+        onSubmit={onSubmitEdit}
+        onOpenMaps={openMaps}
+      />
 
       <SectionTitle>Photos</SectionTitle>
       <Card style={styles.block}>
@@ -445,23 +363,7 @@ const styles = StyleSheet.create({
   },
   block: { marginBottom: spacing.lg },
   muted: { fontSize: typography.small, color: colors.textMuted },
-  note: {
-    fontSize: typography.tiny,
-    color: colors.textMuted,
-    marginBottom: spacing.md,
-    lineHeight: 16,
-  },
-  multiline: { minHeight: 92, paddingTop: spacing.md, textAlignVertical: 'top' },
   saveBtn: { marginTop: spacing.xs },
-  durationRow: { flexDirection: 'row' },
-  durationFieldLeft: { flex: 1, marginRight: spacing.md },
-  durationField: { flex: 1 },
-  durationHint: {
-    fontSize: typography.small,
-    color: colors.textMuted,
-    marginTop: -spacing.xs,
-    marginBottom: spacing.md,
-  },
 
   addressRow: {
     flexDirection: 'row',
