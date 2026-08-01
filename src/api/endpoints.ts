@@ -10,6 +10,7 @@ import { getAuthHeaders } from '../auth/session';
 import type {
   ChangeWorkOrderStatusInput,
   ClientListItem,
+  CreateProjectReportInput,
   CreateTimesheetEntryInput,
   CreateWorkOrderInput,
   CreateWorkOrderResult,
@@ -20,9 +21,13 @@ import type {
   ProjectDetail,
   ProjectListItem,
   ProjectPlan,
+  ProjectReportDetail,
+  ProjectReportListItem,
+  ProjectReportType,
   ProjectTask,
   ProjectTaskUpdateInput,
   RequestOtpInput,
+  UpdateProjectReportInput,
   ScheduleInput,
   ScheduleItem,
   ServiceTypeItem,
@@ -210,6 +215,57 @@ export const projectTasks = {
   // Suppression REST : DELETE /api/project-tasks/:id/photos/:photoId.
   deletePhoto: (taskId: number, photoId: number) =>
     deletePhotoRest(`/api/project-tasks/${taskId}/photos/${photoId}`),
+};
+
+/* ---------------------------- rapports de projet --------------------------- */
+/**
+ * Rapports de projet : travaux extra (à facturer), avancement, fin de projet,
+ * déficiences. Fiche + photos + PDF (PDFShift → R2) + envoi au client.
+ * Le PDF s'ouvre par la route REST `/api/project-reports/:id/pdf` (rendu inline).
+ */
+export const projectReports = {
+  listByProject: (
+    projectId: string,
+    type?: ProjectReportType,
+  ): Promise<ProjectReportListItem[]> =>
+    trpc.projectReports.list.query({
+      projectId: Number(projectId),
+      ...(type ? { type } : {}),
+    }),
+
+  getById: (id: number): Promise<ProjectReportDetail> =>
+    trpc.projectReports.getById.query({ id }),
+
+  create: (
+    input: CreateProjectReportInput,
+  ): Promise<{ id: number; reportNumber: string; success: boolean }> =>
+    trpc.projectReports.create.mutate({
+      ...input,
+      projectId: Number(input.projectId),
+    }),
+
+  update: (input: UpdateProjectReportInput): Promise<{ success: boolean }> =>
+    trpc.projectReports.update.mutate(input),
+
+  remove: (id: number): Promise<{ success: boolean }> =>
+    trpc.projectReports.delete.mutate({ id }),
+
+  /** Régénère le PDF et renvoie une URL R2 presigned (1 h). */
+  generatePdf: (id: number): Promise<{ url: string }> =>
+    trpc.projectReports.generatePdf.mutate({ id }),
+
+  /** Envoie le PDF au client par courriel et passe le rapport à « envoyé ». */
+  email: (id: number, to?: string): Promise<{ success: boolean; sentTo: string }> =>
+    trpc.projectReports.emailReport.mutate({ id, ...(to ? { to } : {}) }),
+
+  /* ---------------------------- photos (comme BT) --------------------------- */
+
+  getPhotoUrls: (id: number): Promise<PhotoUrls> =>
+    trpc.projectReports.getPhotoUrls.query({ id }),
+  uploadPhoto: (id: number, file: PhotoFile, caption = '') =>
+    uploadPhotoMultipart(`/api/project-reports/${id}/photos`, file, caption),
+  deletePhoto: (id: number, photoId: number) =>
+    deletePhotoRest(`/api/project-reports/${id}/photos/${photoId}`),
 };
 
 /* --------------------------- project attachments --------------------------- */

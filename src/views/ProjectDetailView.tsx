@@ -20,12 +20,16 @@ import { Screen } from '../components/Screen';
 import { ErrorState, LoadingState } from '../components/States';
 import {
   projectAttachments,
+  projectReports,
   projectTasks,
   projects as projectsApi,
 } from '../api/endpoints';
 import { useQuery } from '../api/useApi';
 import {
+  formatCAD,
   formatDate,
+  projectReportStatusStyle,
+  projectReportTypeStyle,
   projectStatusStyle,
   taskPriorityStyle,
   taskStatusStyle,
@@ -69,17 +73,30 @@ export function ProjectDetailView({
     router.push(`/projects/task?projectId=${projectId}&taskId=${taskId}`);
   const openPlan = (planId: number) =>
     router.push(`/projects/plan?projectId=${projectId}&planId=${planId}`);
+  const openReports = () => router.push(`/projects/reports?projectId=${projectId}`);
+  const openReport = (reportId: number) =>
+    router.push(`/projects/report?projectId=${projectId}&reportId=${reportId}`);
 
   const projectQ = useQuery(() => projectsApi.getById(projectId), [projectId]);
   const tasksQ = useQuery(() => projectTasks.listByProject(projectId), [projectId]);
   const sitePlansQ = useQuery(() => projectsApi.getPlans(projectId), [projectId]);
   const plansQ = useQuery(() => projectAttachments.list(projectId), [projectId]);
+  const reportsQ = useQuery(() => projectReports.listByProject(projectId), [projectId]);
 
   useEffect(() => {
     if (!embedded && projectQ.data?.name) {
       navigation.setOptions({ title: projectQ.data.name });
     }
   }, [embedded, navigation, projectQ.data?.name]);
+
+  // Total des travaux extra à facturer — le chiffre que le chargé de projet cherche.
+  const extraToBill = useMemo(
+    () =>
+      (reportsQ.data ?? [])
+        .filter((r) => r.type === 'travaux_extra')
+        .reduce((sum, r) => sum + (Number(r.billingAmount ?? 0) || 0), 0),
+    [reportsQ.data],
+  );
 
   const flatTasks = useMemo(() => flattenTasks(tasksQ.data ?? []), [tasksQ.data]);
   const progress = useMemo(() => {
@@ -185,6 +202,72 @@ export function ProjectDetailView({
               <PlanTile key={att.id} att={att} />
             ))}
           </View>
+        )}
+      </Card>
+
+      <View style={styles.sectionHead}>
+        <SectionTitle>Rapports</SectionTitle>
+        <Pressable onPress={openReports} style={styles.sectionLink} accessibilityRole="button">
+          <Text style={styles.sectionLinkText}>Tout voir</Text>
+          <Ionicons name="chevron-forward" size={14} color={colors.navy} />
+        </Pressable>
+      </View>
+      <Card style={styles.block}>
+        {reportsQ.loading ? (
+          <Text style={styles.muted}>Chargement des rapports…</Text>
+        ) : reportsQ.error ? (
+          <Text style={styles.muted}>Rapports indisponibles.</Text>
+        ) : (reportsQ.data ?? []).length === 0 ? (
+          <Pressable onPress={openReports} style={styles.reportEmpty}>
+            <Ionicons name="document-text-outline" size={20} color={colors.textMuted} />
+            <Text style={styles.muted}>
+              Aucun rapport. Touchez pour créer un rapport de travaux extra, d’avancement, de fin de
+              projet ou de déficiences.
+            </Text>
+          </Pressable>
+        ) : (
+          <>
+            {extraToBill > 0 ? (
+              <View style={styles.extraTotalRow}>
+                <Ionicons name="cash-outline" size={16} color={colors.goldDark} />
+                <Text style={styles.extraTotalLabel}>Travaux extra à facturer</Text>
+                <Text style={styles.extraTotalValue}>{formatCAD(extraToBill)}</Text>
+              </View>
+            ) : null}
+            {(reportsQ.data ?? []).slice(0, 4).map((r) => {
+              const rt = projectReportTypeStyle(r.type);
+              const rs = projectReportStatusStyle(r.status);
+              return (
+                <Pressable
+                  key={r.id}
+                  style={styles.planRow}
+                  onPress={() => openReport(r.id)}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name={rt.icon} size={20} color={rt.color} />
+                  <View style={styles.planRowText}>
+                    <Text style={styles.planRowName} numberOfLines={1}>
+                      {r.title}
+                    </Text>
+                    <Text style={styles.muted}>
+                      {r.reportNumber} · {rt.label}
+                      {r.type === 'travaux_extra'
+                        ? ` · ${formatCAD(r.billingAmount)}`
+                        : ''}
+                    </Text>
+                  </View>
+                  <Badge label={rs.label} color={rs.color} bg={rs.bg} />
+                </Pressable>
+              );
+            })}
+            {(reportsQ.data ?? []).length > 4 ? (
+              <Pressable onPress={openReports} style={styles.moreRow}>
+                <Text style={styles.sectionLinkText}>
+                  Voir les {(reportsQ.data ?? []).length} rapports
+                </Text>
+              </Pressable>
+            ) : null}
+          </>
         )}
       </Card>
 
@@ -329,6 +412,36 @@ const styles = StyleSheet.create({
   },
   planRowText: { flex: 1 },
   planRowName: { fontSize: typography.small, color: colors.text, fontWeight: typography.weightMedium },
+
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sectionLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingBottom: spacing.md,
+  },
+  sectionLinkText: {
+    fontSize: typography.small,
+    color: colors.navy,
+    fontWeight: typography.weightSemibold,
+  },
+  reportEmpty: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  extraTotalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingBottom: spacing.md,
+    marginBottom: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  extraTotalLabel: { flex: 1, fontSize: typography.tiny, color: colors.goldDark, fontWeight: typography.weightSemibold },
+  extraTotalValue: { fontSize: typography.body, fontWeight: typography.weightBold, color: colors.navy },
+  moreRow: { paddingTop: spacing.md, alignItems: 'center' },
 
   taskList: { gap: spacing.sm },
   taskCard: { gap: spacing.xs },

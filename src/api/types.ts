@@ -271,6 +271,90 @@ export interface ProjectTask {
   comments?: unknown[];
 }
 
+/* --------------------------- Rapports de projet ---------------------------- */
+
+/** Types de rapport de projet (enum backend `project_reports.type`). */
+export type ProjectReportType =
+  | 'travaux_extra'
+  | 'avancement'
+  | 'fin_projet'
+  | 'deficience';
+
+/** Statuts de rapport de projet (enum backend `project_reports.status`). */
+export type ProjectReportStatus = 'draft' | 'sent' | 'completed' | (string & {});
+
+/** Colonnes brutes de `project_reports`. Les `decimal` arrivent en string. */
+export interface ProjectReport {
+  id: number;
+  projectId: number;
+  reportNumber: string;
+  type: ProjectReportType;
+  title: string;
+  description?: string | null;
+  status: ProjectReportStatus;
+  createdById: number;
+  technicianId?: number | null;
+  hoursWorked?: string | number | null;
+  materials?: string | null;
+  billingAmount?: string | number | null;
+  pdfKey?: string | null;
+  pdfUrl?: string | null;
+  sentAt?: ApiDate;
+  completedAt?: ApiDate;
+  createdAt?: ApiDate;
+  updatedAt?: ApiDate;
+}
+
+/** projectReports.list : rapport + noms résolus + nombre de photos. */
+export interface ProjectReportListItem extends ProjectReport {
+  technicianName?: string | null;
+  createdByName?: string | null;
+  photoCount: number;
+}
+
+/** Photo de rapport avec URL presigned (null si illisible). */
+export interface ProjectReportPhoto {
+  id: number;
+  reportId: number;
+  fileName?: string | null;
+  caption?: string | null;
+  url?: string | null;
+}
+
+/** projectReports.getById : fiche complète. */
+export interface ProjectReportDetail {
+  report: ProjectReport;
+  projectName?: string | null;
+  projectLocation?: string | null;
+  clientName?: string | null;
+  clientEmail?: string | null;
+  technicianName?: string | null;
+  createdByName?: string | null;
+  photos: ProjectReportPhoto[];
+}
+
+export interface CreateProjectReportInput {
+  projectId: string;
+  type: ProjectReportType;
+  title: string;
+  description?: string;
+  technicianId?: number | null;
+  hoursWorked?: number | null;
+  materials?: string;
+  billingAmount?: number | null;
+}
+
+export interface UpdateProjectReportInput {
+  id: number;
+  title?: string;
+  description?: string | null;
+  status?: ProjectReportStatus;
+  technicianId?: number | null;
+  hoursWorked?: number | null;
+  materials?: string | null;
+  billingAmount?: number | null;
+}
+
 /**
  * Pièce jointe / plan de projet (project_attachments). `fileUrl` est une URL
  * presigned fraîche renvoyée par le backend. `fileType` = mime (image/*, pdf…).

@@ -2,6 +2,8 @@
  * Formatage des dates et libellés de statut (français).
  */
 import type {
+  ProjectReportStatus,
+  ProjectReportType,
   ProjectStatus,
   ProjectTaskStatus,
   TimesheetStatus,
@@ -160,6 +162,83 @@ export function taskPriorityStyle(priority: string): StatusStyle {
       bg: colors.surfaceAlt,
     }
   );
+}
+
+// ─── Rapports de projet ───────────────────────────────────────────────────────
+
+// Statuts réels de project_reports.
+const PROJECT_REPORT_STATUS_LABELS: Record<string, StatusStyle> = {
+  draft: { label: 'Brouillon', color: colors.textMuted, bg: colors.surfaceAlt },
+  sent: { label: 'Envoyé', color: colors.info, bg: colors.infoBg },
+  completed: { label: 'Complété', color: colors.success, bg: colors.successBg },
+};
+
+export function projectReportStatusStyle(status: ProjectReportStatus): StatusStyle {
+  return (
+    PROJECT_REPORT_STATUS_LABELS[status] ?? {
+      label: status,
+      color: colors.textMuted,
+      bg: colors.surfaceAlt,
+    }
+  );
+}
+
+/** Habillage d'un type de rapport : libellé, couleurs et icône Ionicons. */
+export interface ReportTypeStyle extends StatusStyle {
+  icon: 'construct-outline' | 'trending-up-outline' | 'flag-outline' | 'warning-outline';
+  hint: string;
+}
+
+const PROJECT_REPORT_TYPE_LABELS: Record<ProjectReportType, ReportTypeStyle> = {
+  travaux_extra: {
+    label: 'Travaux extra',
+    color: colors.goldDark,
+    bg: colors.warningBg,
+    icon: 'construct-outline',
+    hint: 'Travaux hors contrat à facturer.',
+  },
+  avancement: {
+    label: 'Avancement',
+    color: colors.info,
+    bg: colors.infoBg,
+    icon: 'trending-up-outline',
+    hint: "État d'avancement du projet.",
+  },
+  fin_projet: {
+    label: 'Fin de projet',
+    color: colors.success,
+    bg: colors.successBg,
+    icon: 'flag-outline',
+    hint: 'Livraison et clôture des travaux.',
+  },
+  deficience: {
+    label: 'Déficiences',
+    color: colors.danger,
+    bg: colors.dangerBg,
+    icon: 'warning-outline',
+    hint: 'Déficiences constatées à corriger.',
+  },
+};
+
+export const PROJECT_REPORT_TYPES: ProjectReportType[] = [
+  'travaux_extra',
+  'avancement',
+  'fin_projet',
+  'deficience',
+];
+
+export function projectReportTypeStyle(type: string): ReportTypeStyle {
+  return (
+    PROJECT_REPORT_TYPE_LABELS[type as ProjectReportType] ??
+    PROJECT_REPORT_TYPE_LABELS.travaux_extra
+  );
+}
+
+/** Montant en dollars canadiens (accepte les `decimal` renvoyés en string). */
+export function formatCAD(value: string | number | null | undefined): string {
+  const n = value == null ? 0 : Number(value);
+  if (!Number.isFinite(n)) return '—';
+  return n.toLocaleString('fr-CA', { style: 'currency', currency: 'CAD' });
 }
 
 /** Libellé lisible du rôle. */
