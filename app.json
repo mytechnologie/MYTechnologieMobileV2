@@ -19,7 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ca.mytechnologie.mytechservice",
-      "buildNumber": "37",
+      "buildNumber": "39",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "L'application utilise la caméra pour prendre des photos avant/après sur un bon de travail.",
