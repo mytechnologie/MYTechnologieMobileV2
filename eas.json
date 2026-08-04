@@ -1,4 +1,4 @@
-﻿{
+{
   "cli": {
     "version": ">= 12.0.0",
     "appVersionSource": "local"
@@ -31,7 +31,11 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6761673578",
+        "appleTeamId": "Y936JPFK55"
+      }
+    }
   }
 }
-
