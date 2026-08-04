@@ -9,3 +9,4 @@ jobs:
     type: submit
     params:
       platform: ios
+      build_id: 8fd243b5-035a-44ee-a679-3991778fbcfc
