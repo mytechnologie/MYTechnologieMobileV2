@@ -1,102 +1,191 @@
 /**
  * Wrappers d'appel fortement typés autour du client tRPC.
  *
- * Portail employé (portalAuth, timesheet) : vérifié contre server/routers/portalAuth.ts
- * et server/routers/timesheet.ts du dépôt workorders-appsv2.
+ * Connexion : auth.login / verifyLoginOtp / me (server/routers.ts). Le jeton
+ * renvoyé part en `Authorization: Bearer`, accepté par toutes les routes
+ * protégées du portail. Heures : server/routers/timesheet.ts ; elles acceptent
+ * le jeton depuis la PR portail « session par jeton » (#41).
  *
- * ⚠️ Côté admin (projects, workOrders) : ces procédures sont des
- * `protectedProcedure` authentifiées par COOKIE de session. Le portail n'a pas
- * encore de connexion par jeton pour le mobile : elles ne répondront qu'une
- * fois cette route ajoutée. Les formes de réponse admin restent à valider.
+ * ⚠️ projects / workOrders : formes de réponse encore à valider.
  *
  * Les ids sont des nombres côté serveur ; l'app les manipule en chaînes
  * (paramètres de route) et la conversion se fait ICI.
  */
 import { trpc } from './client';
 import type {
-  AdminLoginInput,
-  AdminLoginResult,
   ChangeWorkOrderStatusInput,
   CreateTimesheetEntryInput,
   ProjectDetail,
   ProjectListItem,
   ProjectTask,
   InvestigationOption,
+  LoginInput,
+  LoginResponse,
+  MeResponse,
   ProjectOption,
-  RequestOtpInput,
-  RequestOtpResult,
   SubmitTimesheetEntriesInput,
   TimeEntryRow,
   TimesheetEntry,
   TimesheetLink,
   UpdateTimesheetEntryInput,
-  VerifyOtpInput,
-  VerifyOtpResponse,
-  VerifyOtpResult,
+  VerifyLoginOtpInput,
+  VerifyLoginOtpResponse,
   WorkOrderDetail,
   WorkOrderListItem,
 } from './types';
 
-/* ----------------------------- portalAuth (OTP) ---------------------------- */
+/* ------------------------------ auth (connexion) ------------------------------ */
 
-export const portalAuth = {
-  requestOtp: (input: RequestOtpInput): Promise<RequestOtpResult> =>
-    trpc.portalAuth.requestOtp.mutate(input),
-  verifyOtp: async (input: VerifyOtpInput): Promise<VerifyOtpResult> => {
-    const res: VerifyOtpResponse = await trpc.portalAuth.verifyOtp.mutate({
-      ...input,
-      device: 'mobile',
-    });
-    const exp = new Date(res.expiresAt).getTime();
-    return {
-      session: res.sessionToken,
-      expiresAt: Number.isNaN(exp) ? Date.now() + 8 * 3600 * 1000 : exp,
-      user: {
-        id: String(res.user.id),
-        name: res.user.name ?? 'Employé',
-        role: res.user.role,
-      },
-    };
-  },
-  logout: (): Promise<{ success: boolean }> => trpc.portalAuth.logout.mutate(),
-};
-
-/* --------------------------- adminAuth (password) -------------------------- */
-
-export const adminAuth = {
-  /**
-   * Pas encore de route côté portail : `auth.login` pose un cookie et exige un
-   * code SMS pour les rôles admin. À brancher sur une route mobile dédiée.
-   */
-  login: async (_input: AdminLoginInput): Promise<AdminLoginResult> => {
-    throw new Error(
-      "La connexion administrateur n'est pas encore disponible sur mobile. " +
-        'Utilisez la connexion employé (code SMS).',
-    );
-  },
+export const auth = {
+  login: (input: LoginInput): Promise<LoginResponse> => trpc.auth.login.mutate(input),
+  verifyLoginOtp: (input: VerifyLoginOtpInput): Promise<VerifyLoginOtpResponse> =>
+    trpc.auth.verifyLoginOtp.mutate(input),
+  resendLoginOtp: (challengeId: string): Promise<{ success: boolean }> =>
+    trpc.auth.resendLoginOtp.mutate({ challengeId }),
+  me: (): Promise<MeResponse | null> => trpc.auth.me.query(),
 };
 
 /* -------------------------------- projects --------------------------------- */
 
+/** Ligne de projects.list (server/routers/projects.ts). */
+interface ProjectRow {
+  id: number;
+  code: string | null;
+  name: string;
+  status: string;
+  clientName: string | null;
+  budgetHours: number;
+  actualHours: number;
+  hoursPct: number | null;
+}
+
+/** Réponse de projects.getById. */
+interface ProjectGetResponse {
+  project: {
+    id: number;
+    code: string | null;
+    name: string;
+    status: string;
+    description: string | null;
+    budget: string | number | null;
+    startDate: Date | string | null;
+    endDate: Date | string | null;
+  };
+  client: { name: string } | null;
+  phases: { id: number; parentId: number | null; name: string; status: string; sortOrder: number }[];
+  hours: {
+    phases: { phaseId: number; budgetHours: number; timesheetHours: number; punchHours: number }[];
+    totals: { budgetHours: number; actualHours: number; pct: number | null };
+  };
+}
+
+const dateOrNull = (v: Date | string | null): string | null =>
+  v == null ? null : new Date(v).toISOString().slice(0, 10);
+
 export const projects = {
-  list: (): Promise<ProjectListItem[]> => trpc.projects.list.query(),
-  getById: (id: string): Promise<ProjectDetail> =>
-    trpc.projects.getById.query({ id: Number(id) }),
+  list: async (): Promise<ProjectListItem[]> => {
+    const rows: ProjectRow[] = await trpc.projects.list.query();
+    return rows.map(r => ({
+      id: String(r.id),
+      name: r.code ? `${r.code} — ${r.name}` : r.name,
+      client: r.clientName,
+      status: r.status,
+      progress: r.hoursPct,
+      budgetHours: r.budgetHours,
+      spentHours: r.actualHours,
+    }));
+  },
+  getById: async (id: string): Promise<ProjectDetail> => {
+    const res: ProjectGetResponse = await trpc.projects.getById.query({ id: Number(id) });
+    const p = res.project;
+    const hoursOf = new Map(res.hours.phases.map(h => [h.phaseId, h]));
+    // Phases puis leurs sous-phases (un seul niveau), dans l'ordre du portail.
+    const top = res.phases.filter(ph => ph.parentId == null);
+    const ordered = top.flatMap(ph => [ph, ...res.phases.filter(c => c.parentId === ph.id)]);
+    return {
+      id: String(p.id),
+      name: p.code ? `${p.code} — ${p.name}` : p.name,
+      client: res.client?.name ?? null,
+      status: p.status,
+      progress: res.hours.totals.pct,
+      budgetHours: res.hours.totals.budgetHours,
+      spentHours: res.hours.totals.actualHours,
+      description: p.description,
+      budgetAmount: p.budget != null ? Number(p.budget) : null,
+      startDate: dateOrNull(p.startDate),
+      endDate: dateOrNull(p.endDate),
+      phases: ordered.map(ph => {
+        const h = hoursOf.get(ph.id);
+        const done = h ? h.timesheetHours + h.punchHours : 0;
+        return {
+          id: String(ph.id),
+          name: ph.parentId == null ? ph.name : `› ${ph.name}`,
+          status: ph.status,
+          progress: h && h.budgetHours > 0 ? Math.round((done / h.budgetHours) * 100) : null,
+        };
+      }),
+    };
+  },
 };
 
-/** Le portail n'expose pas de routeur `projectTasks` : à remplacer par la vraie source. */
+/** Le portail n'a pas de tâches distinctes des phases : rien à lister ici. */
 export const projectTasks = {
   listByProject: async (_projectId: string): Promise<ProjectTask[]> => [],
 };
 
 /* ------------------------------ work orders -------------------------------- */
 
+/** Ligne de workOrders.list (withNames) / workOrders.get (server/routers.ts). */
+interface WorkOrderRow {
+  id: number;
+  ticketNumber: string;
+  status: string;
+  priority?: string | null;
+  serviceType: string | null;
+  location: string | null;
+  serviceDate: Date | string | null;
+  problemDescription: string | null;
+  actionsTaken?: string | null;
+  clientName?: string | null;
+  technicianName?: string | null;
+}
+
+/** Anciens statuts encore présents en base (shared/workOrderStatus.ts). */
+const LEGACY_STATUS: Record<string, string> = {
+  en_attente: 'nouveau',
+  assigne: 'planifie',
+  soumis: 'complete',
+  approuve: 'a_facturer',
+};
+
+function toWorkOrder(r: WorkOrderRow): WorkOrderDetail {
+  const firstLine = (r.problemDescription ?? '').split('\n')[0]?.trim() ?? '';
+  return {
+    id: String(r.id),
+    number: r.ticketNumber,
+    title: r.serviceType || firstLine || 'Appel de service',
+    client: r.clientName ?? null,
+    status: LEGACY_STATUS[r.status] ?? r.status,
+    scheduledDate: r.serviceDate ? new Date(r.serviceDate).toISOString() : null,
+    address: r.location,
+    description: r.problemDescription,
+  };
+}
+
 export const workOrders = {
-  list: (): Promise<WorkOrderListItem[]> => trpc.workOrders.list.query(),
-  getById: (id: string): Promise<WorkOrderDetail> =>
-    trpc.workOrders.get.query({ id: Number(id) }),
-  changeStatus: (input: ChangeWorkOrderStatusInput): Promise<WorkOrderDetail> =>
-    trpc.workOrders.changeStatus.mutate({ ...input, id: Number(input.id) }),
+  /** Le portail limite déjà un technicien à ses bons (work_orders.view_assigned). */
+  list: async (): Promise<WorkOrderListItem[]> => {
+    const res: { items: WorkOrderRow[]; total: number } = await trpc.workOrders.list.query({
+      withNames: true,
+      limit: 100,
+    });
+    return res.items.map(toWorkOrder);
+  },
+  getById: async (id: string): Promise<WorkOrderDetail> =>
+    toWorkOrder(await trpc.workOrders.get.query({ id: Number(id) })),
+  /** Transitions et droits vérifiés par le portail (STATUS_TRANSITIONS). */
+  changeStatus: (input: ChangeWorkOrderStatusInput): Promise<{ success: boolean }> =>
+    trpc.workOrders.changeStatus.mutate({ id: Number(input.id), status: input.status }),
 };
 
 /* -------------------------------- timesheet -------------------------------- */

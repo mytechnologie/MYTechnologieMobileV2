@@ -41,6 +41,8 @@ export const trpc = createTRPCProxyClient<any>({
       },
       headers() {
         return {
+          // Le portail saute Turnstile et le jeton CSRF pour l'app mobile.
+          'x-mobile-app': 'true',
           ...getAuthHeaders(),
         };
       },

@@ -21,56 +21,48 @@ npm run start               # puis « i » (iOS) ou « a » (Android)
 - `npm run typecheck` — TypeScript strict, 0 erreur.
 - `npm run ios` / `npm run android` — lance directement sur le simulateur/émulateur.
 
-## Backend (réutilisé, NON modifié)
+## Backend (portail workorders-appsv2)
 
-- Base URL : `EXPO_PUBLIC_API_URL` (fallback Cloud Run de production).
-- Préfixe tRPC : `/api/trpc`.
-- Auth employé : `portalAuth.requestOtp` / `verifyOtp` (OTP SMS, header `x-portal-session`).
-- Auth admin : `adminAuth.login` (email + mot de passe, header `Authorization: Bearer`).
-- Données : `projects.*`, `projectTasks.*`, `workOrders.*`, `timesheet.*`.
+- Base URL : `EXPO_PUBLIC_API_URL` (fallback Cloud Run de production). tRPC sous `/api/trpc`,
+  transformer **superjson** (obligatoire, comme le serveur).
+- Chaque requête envoie `x-mobile-app: true` (le portail saute Turnstile et le jeton CSRF).
+- Types déclarés localement (`src/api/types.ts`), appels et conversions dans
+  `src/api/endpoints.ts`. Si une forme change côté portail, ajuster ces deux fichiers.
 
-> Les types des entrées/sorties sont déclarés localement dans `src/api/types.ts` et les
-> noms de procédures dans `src/api/endpoints.ts`. Si une forme/route diffère côté backend,
-> **ajuster uniquement ces deux fichiers** — le reste de l'app en dépend.
+## Connexion — une seule, celle du portail
 
-### État du branchement (nov. 2026)
+Techniciens et administrateurs : courriel + mot de passe (`auth.login`), puis code SMS
+(`auth.verifyLoginOtp`). Le jeton renvoyé part en `Authorization: Bearer` ; le profil et les
+permissions viennent de `auth.me`. L'app redemande la connexion après 8 h et se déconnecte sur 401.
 
-| Partie | État |
-|---|---|
-| Transport tRPC | `superjson`, comme le serveur (obligatoire) |
-| Connexion employé (code SMS) | Vérifiée contre `server/routers/portalAuth.ts` |
-| Saisie d'heures | Vérifiée contre `server/routers/timesheet.ts` : projet + phase ou enquête, suppression de brouillon |
-| Connexion admin | **Pas de route mobile côté portail** (l'admin web = cookie + code SMS). Message clair dans l'app |
-| Projets / bons (admin) | Noms de procédures corrigés (`workOrders.list/get/changeStatus`), formes de réponse à valider une fois la connexion admin en place |
+Les heures (`timesheet.*`) acceptent ce jeton depuis la PR portail #41 : **la déployer avant
+de tester la saisie d'heures**.
 
-Connecté par code SMS, l'app n'affiche que Accueil + Heures, même pour un admin :
-les routes projets/bons exigent la session admin et répondraient 401.
+## Sections
 
-## Authentification — double mode
+| Rôle | Sections |
+|------|----------|
+| technicien, admin, manager, super_admin | Accueil, Projets, Bons, Heures |
+| autre | Accueil, Heures |
 
-| Rôle | Connexion | Session |
-|------|-----------|---------|
-| Employé régulier (technicien…) | OTP SMS (`portalAuth`) | `x-portal-session`, 8 h |
-| admin / manager / super_admin | Email + mot de passe (`adminAuth`) | `Authorization: Bearer`, 8 h |
+Le portail filtre ce que chacun voit (un technicien ne reçoit que ses bons). Voir
+`src/auth/access.ts`.
 
-La session expire après 8 h (re-login automatique). Un 401 force la déconnexion.
+## Build TestFlight
 
-## Contrôle d'accès (strict, basé sur le rôle/permissions de l'API)
+Version affichée : **2.0.0** (`app.json`), pour passer devant la version déjà publiée
+(cachée) sur l'App Store. Le numéro de build est géré par EAS (`appVersionSource: remote`).
 
-- **Employé régulier** → Accueil + **Saisie d'heures** uniquement.
-- **admin / manager / super_admin** → les 4 sections.
-- Aucun `role === "admin"` codé en dur : voir `src/auth/access.ts`. Les onglets sont
-  filtrés selon le rôle.
+```bash
+npm i -g eas-cli
+eas login
+eas init                                         # lie le projet Expo (extra.eas.projectId)
+eas build --profile production --platform ios
+eas submit --platform ios --latest               # envoie le build sur TestFlight
+```
 
-## Les 4 sections
-
-1. **Accueil** — dashboard adapté au rôle (résumé d'heures pour l'employé ; aperçu projets /
-   bons pour l'admin).
-2. **Projets** (admin/manager) — liste + détail (phases, tâches, heures, budget).
-3. **Bons de travail** (admin/manager) — liste + détail (équipement, photos, changement de
-   statut).
-4. **Saisie d'heures** (tous) — formulaire date / projet-bon / début-fin-pause (total live,
-   gestion overnight) / notes ; historique avec statut, édition des brouillons, soumission.
+`eas submit` demande l'app App Store Connect : choisir l'app existante. Son identifiant de
+bundle doit être `ca.mytechnologie.mytechservice` ; sinon, corriger `ios.bundleIdentifier`.
 
 ## Identité de l'app
 
@@ -94,7 +86,7 @@ eas build --profile preview --platform all
 
 ```
 app/                 # routes expo-router
-  (auth)/            # sign-in, OTP employé, login admin
+  (auth)/            # connexion (mot de passe + code SMS)
   (tabs)/            # onglets filtrés par rôle
     index.tsx        # Accueil
     projects/        # liste + détail

@@ -1,7 +1,8 @@
 /**
- * Contexte d'authentification — double mode (OTP employé / login admin).
- * Gère la session sécurisée, la restauration au démarrage, l'expiration (8h)
- * et la déconnexion forcée sur 401.
+ * Contexte d'authentification — connexion unique du portail :
+ * courriel + mot de passe (auth.login), puis code SMS (auth.verifyLoginOtp).
+ * Le jeton renvoyé part en `Authorization: Bearer`. L'app redemande la
+ * connexion après 8 h et se déconnecte sur 401.
  */
 import React, {
   createContext,
@@ -12,16 +13,17 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { adminAuth, portalAuth } from '../api/endpoints';
+import { auth } from '../api/endpoints';
 import { setUnauthorizedHandler } from '../api/client';
 import type { AuthUser, Session } from '../api/types';
-import { clearSession, loadSession, saveSession } from './session';
+import { clearSession, loadSession, saveSession, setActiveAuth } from './session';
 
-const EIGHT_HOURS_SECONDS = 8 * 60 * 60;
+const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
 
-function computeExpiry(expiresInSeconds?: number): number {
-  const ttl = expiresInSeconds && expiresInSeconds > 0 ? expiresInSeconds : EIGHT_HOURS_SECONDS;
-  return Date.now() + ttl * 1000;
+/** Étape « code SMS » en attente après le mot de passe. */
+export interface OtpChallenge {
+  challengeId: string;
+  email: string;
 }
 
 interface AuthContextValue {
@@ -30,12 +32,14 @@ interface AuthContextValue {
   user: AuthUser | null;
   mode: Session['mode'] | null;
   isAuthenticated: boolean;
-  /** Vérifie le code OTP et ouvre la session employé. */
-  signInWithOtp: (phone: string, code: string) => Promise<void>;
-  /** Demande l'envoi d'un code OTP. */
-  requestOtp: (phone: string) => Promise<void>;
-  /** Login admin email + mot de passe. */
-  signInWithPassword: (email: string, password: string) => Promise<void>;
+  /**
+   * Étape 1. Renvoie le défi SMS à compléter, ou null si le compte est
+   * dispensé de code (la session est alors ouverte).
+   */
+  signIn: (email: string, password: string) => Promise<OtpChallenge | null>;
+  /** Étape 2 : code à 6 chiffres reçu par SMS. */
+  verifyCode: (challenge: OtpChallenge, code: string) => Promise<void>;
+  resendCode: (challenge: OtpChallenge) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -87,35 +91,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [applySession, doSignOut]);
 
-  const requestOtp = useCallback(async (phone: string) => {
-    await portalAuth.requestOtp({ phone });
+  /** Ouvre la session à partir du jeton : profil et permissions via auth.me. */
+  const openSession = useCallback(
+    async (token: string) => {
+      const authHeader = { headerName: 'authorization', headerValue: `Bearer ${token}` };
+      setActiveAuth(authHeader);
+      const me = await auth.me();
+      if (!me) {
+        setActiveAuth(null);
+        throw new Error('Session refusée par le serveur.');
+      }
+      await applySession({
+        user: {
+          id: String(me.id),
+          name: me.name ?? me.email ?? 'Utilisateur',
+          role: me.role,
+          email: me.email,
+          phone: me.phone ?? null,
+          permissions: me.permissions,
+        },
+        auth: authHeader,
+        mode: 'token',
+        expiresAt: Date.now() + EIGHT_HOURS_MS,
+      });
+    },
+    [applySession],
+  );
+
+  const signIn = useCallback(
+    async (email: string, password: string): Promise<OtpChallenge | null> => {
+      const res = await auth.login({ email, password });
+      if (res.otpRequired) return { challengeId: res.challengeId, email };
+      await openSession(res.token);
+      return null;
+    },
+    [openSession],
+  );
+
+  const verifyCode = useCallback(
+    async (challenge: OtpChallenge, code: string) => {
+      const res = await auth.verifyLoginOtp({ challengeId: challenge.challengeId, otpCode: code });
+      await openSession(res.token);
+    },
+    [openSession],
+  );
+
+  const resendCode = useCallback(async (challenge: OtpChallenge) => {
+    await auth.resendLoginOtp(challenge.challengeId);
   }, []);
-
-  const signInWithOtp = useCallback(
-    async (phone: string, code: string) => {
-      const res = await portalAuth.verifyOtp({ phone, code });
-      await applySession({
-        user: res.user,
-        auth: { headerName: 'x-portal-session', headerValue: res.session },
-        mode: 'employee',
-        expiresAt: res.expiresAt,
-      });
-    },
-    [applySession],
-  );
-
-  const signInWithPassword = useCallback(
-    async (email: string, password: string) => {
-      const res = await adminAuth.login({ email, password });
-      await applySession({
-        user: res.user,
-        auth: { headerName: 'authorization', headerValue: `Bearer ${res.token}` },
-        mode: 'admin',
-        expiresAt: computeExpiry(res.expiresInSeconds),
-      });
-    },
-    [applySession],
-  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -123,16 +146,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user: session?.user ?? null,
       mode: session?.mode ?? null,
       isAuthenticated: !!session,
-      requestOtp,
-      signInWithOtp,
-      signInWithPassword,
-      signOut: async () => {
-        // Révoque la session côté serveur (best-effort) avant d'effacer localement.
-        if (session?.mode === 'employee') await portalAuth.logout().catch(() => undefined);
-        await doSignOut();
-      },
+      signIn,
+      verifyCode,
+      resendCode,
+      signOut: doSignOut,
     }),
-    [initializing, session, requestOtp, signInWithOtp, signInWithPassword, doSignOut],
+    [initializing, session, signIn, verifyCode, resendCode, doSignOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

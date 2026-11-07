@@ -41,79 +41,74 @@ export interface AuthUser {
 export interface Session {
   user: AuthUser;
   auth: SessionAuth;
-  /** Mode de connexion d'origine. */
-  mode: 'employee' | 'admin';
+  /** Session par jeton (auth.login + code SMS), la seule depuis la phase 0. */
+  mode: 'token';
   /** Expiration absolue (epoch ms). Portail = 8h. */
   expiresAt: number;
 }
 
 /* -------------------------------------------------------------------------- */
-/* portalAuth (OTP employé)                                                   */
+/* auth (connexion unique : courriel + mot de passe + code SMS)               */
 /* -------------------------------------------------------------------------- */
 
-export interface RequestOtpInput {
-  /** Téléphone au format E.164, ex. +15145551234. */
-  phone: string;
-}
-export interface RequestOtpResult {
-  success: boolean;
-  /** false si Twilio n'a pas pu envoyer le SMS (le code existe quand même). */
-  smsSent?: boolean;
-}
-
-export interface VerifyOtpInput {
-  phone: string;
-  code: string;
-}
-
-/** Réponse brute de portalAuth.verifyOtp (server/routers/portalAuth.ts). */
-export interface VerifyOtpResponse {
-  /** Token de session portail → header x-portal-session. */
-  sessionToken: string;
-  /** Expiration absolue (Date via superjson). 8 h côté portail. */
-  expiresAt: Date | string;
-  user: {
-    id: number;
-    name: string | null;
-    role: string;
-    departmentId?: number | null;
-    department?: { id: number; name: string } | null;
-  };
-}
-
-/** Résultat normalisé utilisé par l'app. */
-export interface VerifyOtpResult {
-  session: string;
-  user: AuthUser;
-  /** Expiration absolue (epoch ms). */
-  expiresAt: number;
-}
-
-/* -------------------------------------------------------------------------- */
-/* adminAuth (email + mot de passe)                                           */
-/* -------------------------------------------------------------------------- */
-
-export interface AdminLoginInput {
+export interface LoginInput {
   email: string;
   password: string;
 }
-export interface AdminLoginResult {
-  /** Token / JWT de session admin. */
+
+/** Réponse de auth.login (server/routers.ts, authRouter). */
+export type LoginResponse =
+  | {
+      success: true;
+      otpRequired: true;
+      challengeId: string;
+      expiresAt: string;
+      resendAvailableAt: string;
+      user: { id: number; email: string | null; role: string };
+    }
+  | {
+      success: true;
+      otpRequired?: undefined;
+      token: string;
+      mustChangePassword: boolean;
+      user: { id: number; name: string | null; email: string | null; role: string };
+    };
+
+export interface VerifyLoginOtpInput {
+  challengeId: string;
+  otpCode: string;
+}
+
+/** Réponse de auth.verifyLoginOtp. */
+export interface VerifyLoginOtpResponse {
+  success: true;
   token: string;
-  user: AuthUser;
-  expiresInSeconds?: number;
+  mustChangePassword: boolean;
+  user: { id: number; name: string | null; email: string | null; role: string };
+}
+
+/** Réponse de auth.me (null sans session valide). */
+export interface MeResponse {
+  id: number;
+  name: string | null;
+  email: string | null;
+  phone?: string | null;
+  role: string;
+  permissions: string[];
 }
 
 /* -------------------------------------------------------------------------- */
 /* Projets                                                                    */
 /* -------------------------------------------------------------------------- */
 
+/** shared/projets.ts PROJECT_STATUS_VALUES. */
 export type ProjectStatus =
-  | 'planning'
-  | 'active'
-  | 'on_hold'
-  | 'completed'
-  | 'cancelled'
+  | 'preparation'
+  | 'en_cours'
+  | 'en_pause'
+  | 'reception'
+  | 'termine'
+  | 'annule'
   | (string & {});
 
 export interface ProjectListItem {
@@ -166,13 +161,18 @@ export interface ProjectTask {
 /* Bons de travail                                                            */
 /* -------------------------------------------------------------------------- */
 
+/** shared/workOrderStatus.ts WORK_ORDER_STATUSES. */
 export type WorkOrderStatus =
-  | 'pending'
-  | 'scheduled'
-  | 'in_progress'
-  | 'on_hold'
-  | 'completed'
-  | 'cancelled'
+  | 'nouveau'
+  | 'a_rappeler'
+  | 'planifie'
+  | 'en_route'
+  | 'en_cours'
+  | 'complete'
+  | 'en_revision'
+  | 'a_facturer'
+  | 'facture'
+  | 'non_facture'
   | (string & {});
 
 export interface WorkOrderPhoto {
@@ -203,7 +203,6 @@ export interface WorkOrderDetail extends WorkOrderListItem {
 export interface ChangeWorkOrderStatusInput {
   id: string;
   status: WorkOrderStatus;
-  note?: string;
 }
 
 /* -------------------------------------------------------------------------- */

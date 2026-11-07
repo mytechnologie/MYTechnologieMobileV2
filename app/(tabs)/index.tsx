@@ -51,8 +51,7 @@ function StatCard({
 export default function HomeScreen() {
   const router = useRouter();
   const { user, mode } = useAuth();
-  // Aperçu admin seulement avec une session admin (voir src/auth/access.ts).
-  const elevated = !!user && mode === 'admin' && isElevated(user);
+  const elevated = !!user && mode === 'token' && isElevated(user);
 
   const entriesQ = useQuery(() => timesheet.myEntries(), []);
   const projectsQ = useQuery(
@@ -81,10 +80,10 @@ export default function HomeScreen() {
 
   const todayISO = toISODate(new Date());
   const todaysWorkOrders = (workOrdersQ.data ?? []).filter(
-    (w) => w.scheduledDate && w.scheduledDate.slice(0, 10) === todayISO,
+    (w) => !!w.scheduledDate && toISODate(new Date(w.scheduledDate)) === todayISO,
   ).length;
   const activeProjects = (projectsQ.data ?? []).filter(
-    (p) => p.status === 'active' || p.status === 'planning',
+    (p) => p.status === 'en_cours' || p.status === 'preparation' || p.status === 'reception',
   ).length;
 
   const refreshing =
