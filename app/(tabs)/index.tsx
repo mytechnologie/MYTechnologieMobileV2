@@ -50,8 +50,9 @@ function StatCard({
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user } = useAuth();
-  const elevated = !!user && isElevated(user);
+  const { user, mode } = useAuth();
+  // Aperçu admin seulement avec une session admin (voir src/auth/access.ts).
+  const elevated = !!user && mode === 'admin' && isElevated(user);
 
   const entriesQ = useQuery(() => timesheet.myEntries(), []);
   const projectsQ = useQuery(

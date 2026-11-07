@@ -33,6 +33,19 @@ npm run start               # puis « i » (iOS) ou « a » (Android)
 > noms de procédures dans `src/api/endpoints.ts`. Si une forme/route diffère côté backend,
 > **ajuster uniquement ces deux fichiers** — le reste de l'app en dépend.
 
+### État du branchement (nov. 2026)
+
+| Partie | État |
+|---|---|
+| Transport tRPC | `superjson`, comme le serveur (obligatoire) |
+| Connexion employé (code SMS) | Vérifiée contre `server/routers/portalAuth.ts` |
+| Saisie d'heures | Vérifiée contre `server/routers/timesheet.ts` : projet + phase ou enquête, suppression de brouillon |
+| Connexion admin | **Pas de route mobile côté portail** (l'admin web = cookie + code SMS). Message clair dans l'app |
+| Projets / bons (admin) | Noms de procédures corrigés (`workOrders.list/get/changeStatus`), formes de réponse à valider une fois la connexion admin en place |
+
+Connecté par code SMS, l'app n'affiche que Accueil + Heures, même pour un admin :
+les routes projets/bons exigent la session admin et répondraient 401.
+
 ## Authentification — double mode
 
 | Rôle | Connexion | Session |

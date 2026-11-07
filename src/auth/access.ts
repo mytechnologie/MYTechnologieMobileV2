@@ -4,6 +4,10 @@
  *
  * - Employé régulier (technician, employee, …) → Accueil + Saisie d'heures uniquement.
  * - admin / manager / super_admin → les 4 sections.
+ *
+ * Projets et bons passent par l'auth admin du portail (cookie, pas la session
+ * portail). Connecté par code SMS, même un admin n'y a donc pas accès : ces
+ * appels répondraient 401 et forceraient la déconnexion. Voir `mode`.
  */
 import type { AuthUser } from '../api/types';
 
@@ -27,9 +31,13 @@ export function isElevated(user: Pick<AuthUser, 'role'>): boolean {
 export function canAccess(
   section: Section,
   user: Pick<AuthUser, 'role' | 'permissions'>,
+  mode: 'employee' | 'admin' | null,
 ): boolean {
   // Accueil et saisie d'heures : accessibles à tous les utilisateurs connectés.
   if (section === 'home' || section === 'timesheet') return true;
+
+  // Sections admin : seulement avec une session admin.
+  if (mode !== 'admin') return false;
 
   // Rôles élevés : accès complet.
   if (isElevated(user)) return true;
@@ -42,7 +50,8 @@ export function canAccess(
 /** Sections visibles pour cet utilisateur, dans l'ordre d'affichage. */
 export function visibleSections(
   user: Pick<AuthUser, 'role' | 'permissions'>,
+  mode: 'employee' | 'admin' | null,
 ): Section[] {
   const all: Section[] = ['home', 'projects', 'work-orders', 'timesheet'];
-  return all.filter((s) => canAccess(s, user));
+  return all.filter((s) => canAccess(s, user, mode));
 }

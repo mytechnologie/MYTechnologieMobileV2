@@ -59,8 +59,8 @@ export default function EmployeeOtpScreen() {
 
   const onVerify = async () => {
     setError(null);
-    if (code.trim().length < 4) {
-      setError('Entrez le code reçu par SMS.');
+    if (!/^\d{6}$/.test(code.trim())) {
+      setError('Entrez le code à 6 chiffres reçu par SMS.');
       return;
     }
     setBusy(true);
@@ -121,7 +121,7 @@ export default function EmployeeOtpScreen() {
                   keyboardType="number-pad"
                   autoComplete="sms-otp"
                   textContentType="oneTimeCode"
-                  maxLength={8}
+                  maxLength={6}
                   value={code}
                   onChangeText={setCode}
                   error={error}

@@ -98,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user: res.user,
         auth: { headerName: 'x-portal-session', headerValue: res.session },
         mode: 'employee',
-        expiresAt: computeExpiry(res.expiresInSeconds),
+        expiresAt: res.expiresAt,
       });
     },
     [applySession],
@@ -126,7 +126,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       requestOtp,
       signInWithOtp,
       signInWithPassword,
-      signOut: doSignOut,
+      signOut: async () => {
+        // Révoque la session côté serveur (best-effort) avant d'effacer localement.
+        if (session?.mode === 'employee') await portalAuth.logout().catch(() => undefined);
+        await doSignOut();
+      },
     }),
     [initializing, session, requestOtp, signInWithOtp, signInWithPassword, doSignOut],
   );

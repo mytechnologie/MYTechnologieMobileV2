@@ -57,21 +57,36 @@ export interface RequestOtpInput {
 }
 export interface RequestOtpResult {
   success: boolean;
-  /** Certaines impls renvoient un délai d'expiration du code. */
-  expiresInSeconds?: number;
+  /** false si Twilio n'a pas pu envoyer le SMS (le code existe quand même). */
+  smsSent?: boolean;
 }
 
 export interface VerifyOtpInput {
   phone: string;
   code: string;
 }
-/** Réponse brute attendue de verifyOtp. */
-export interface VerifyOtpResult {
+
+/** Réponse brute de portalAuth.verifyOtp (server/routers/portalAuth.ts). */
+export interface VerifyOtpResponse {
   /** Token de session portail → header x-portal-session. */
+  sessionToken: string;
+  /** Expiration absolue (Date via superjson). 8 h côté portail. */
+  expiresAt: Date | string;
+  user: {
+    id: number;
+    name: string | null;
+    role: string;
+    departmentId?: number | null;
+    department?: { id: number; name: string } | null;
+  };
+}
+
+/** Résultat normalisé utilisé par l'app. */
+export interface VerifyOtpResult {
   session: string;
   user: AuthUser;
-  /** Durée de vie en secondes (8h par défaut côté portail). */
-  expiresInSeconds?: number;
+  /** Expiration absolue (epoch ms). */
+  expiresAt: number;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -202,30 +217,71 @@ export type TimesheetStatus =
   | 'rejected'
   | (string & {});
 
+/** Ligne brute de timesheet.myEntries (table time_entries). */
+export interface TimeEntryRow {
+  id: number;
+  entryDate: Date | string;
+  mode: 'hours' | 'range';
+  startTime: string | null;
+  endTime: string | null;
+  breakMinutes: number | null;
+  hoursWorked: number | null;
+  computedHours: number;
+  linkType: 'project' | 'investigation' | null;
+  projectId: number | null;
+  projectPhaseId: number | null;
+  investigationId: number | null;
+  notes: string | null;
+  status: TimesheetStatus;
+  rejectedReason?: string | null;
+}
+
+/** Projet ouvert + phases saisissables (timesheet.projectOptions). */
+export interface ProjectOption {
+  id: number;
+  code: string | null;
+  name: string;
+  clientName: string | null;
+  phases: { id: number; name: string; status: string }[];
+}
+
+/** Dossier d'enquête (timesheet.investigationOptions). */
+export interface InvestigationOption {
+  id: number;
+  ticketNumber: string | null;
+  clientName: string | null;
+}
+
+/** Rattachement d'une saisie : rien, un projet (+ phase) ou une enquête. */
+export type TimesheetLink =
+  | { linkType: null }
+  | { linkType: 'project'; projectId: number; projectPhaseId: number | null }
+  | { linkType: 'investigation'; investigationId: number };
+
+/** Saisie d'heures normalisée pour l'affichage. */
 export interface TimesheetEntry {
   id: string;
   /** Date ISO (YYYY-MM-DD). */
   date: string;
-  projectId?: string | null;
-  projectName?: string | null;
-  workOrderId?: string | null;
-  workOrderNumber?: string | null;
+  link: TimesheetLink;
+  /** Libellé lisible du rattachement (projet › phase, ou enquête). */
+  linkLabel: string | null;
   /** Heure de début 'HH:mm'. */
   startTime: string;
   /** Heure de fin 'HH:mm'. */
   endTime: string;
   /** Pause en minutes. */
   breakMinutes: number;
-  /** Total calculé en heures décimales. */
+  /** Total calculé par le serveur, en heures décimales. */
   totalHours: number;
   notes?: string | null;
   status: TimesheetStatus;
+  rejectedReason?: string | null;
 }
 
 export interface CreateTimesheetEntryInput {
   date: string;
-  projectId?: string | null;
-  workOrderId?: string | null;
+  link: TimesheetLink;
   startTime: string;
   endTime: string;
   breakMinutes: number;

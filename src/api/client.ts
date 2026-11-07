@@ -4,8 +4,12 @@
  * Le routeur backend n'est pas importé : on type le proxy de façon permissive et on
  * expose des wrappers fortement typés dans `endpoints.ts` (types depuis `types.ts`).
  * Les headers d'auth sont injectés dynamiquement à chaque batch depuis le cache mémoire.
+ *
+ * Le serveur sérialise avec superjson (server/_core/trpc.ts) : sans le même
+ * transformer ici, aucune réponse n'est lisible (dates, enveloppe `json`).
  */
 import { createTRPCProxyClient, httpBatchLink } from '@trpc/client';
+import superjson from 'superjson';
 import { API_TRPC_URL } from './config';
 import { getAuthHeaders } from '../auth/session';
 
@@ -27,6 +31,7 @@ export const trpc = createTRPCProxyClient<any>({
   links: [
     httpBatchLink({
       url: API_TRPC_URL,
+      transformer: superjson,
       async fetch(input, init) {
         const res = await fetch(input as RequestInfo, init);
         if (res.status === 401) {

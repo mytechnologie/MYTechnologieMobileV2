@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Button, Card, TextField } from './Primitives';
-import { ReferencePicker, type LinkSelection } from './ReferencePicker';
+import { NO_LINK, ReferencePicker, type LinkSelection } from './ReferencePicker';
 import type { CreateTimesheetEntryInput, TimesheetEntry } from '../api/types';
 import { formatDate, toISODate } from '../lib/format';
 import { computeWorkedHours, formatHours } from '../lib/time';
@@ -22,17 +22,8 @@ export interface TimesheetFormValues {
 }
 
 function initialLink(entry?: TimesheetEntry): LinkSelection {
-  if (entry?.projectId) {
-    return { kind: 'project', id: entry.projectId, label: entry.projectName ?? 'Projet' };
-  }
-  if (entry?.workOrderId) {
-    return {
-      kind: 'workOrder',
-      id: entry.workOrderId,
-      label: entry.workOrderNumber ? `#${entry.workOrderNumber}` : 'Bon de travail',
-    };
-  }
-  return { kind: 'none' };
+  if (!entry || entry.link.linkType === null) return NO_LINK;
+  return { link: entry.link, label: entry.linkLabel };
 }
 
 export function TimesheetForm({
@@ -78,8 +69,7 @@ export function TimesheetForm({
     }
     onSubmit({
       date,
-      projectId: link.kind === 'project' ? link.id : null,
-      workOrderId: link.kind === 'workOrder' ? link.id : null,
+      link: link.link,
       startTime,
       endTime,
       breakMinutes: Number(breakMinutes) || 0,
