@@ -193,11 +193,13 @@ export interface WorkOrderListItem {
 }
 
 export interface WorkOrderDetail extends WorkOrderListItem {
+  /** Problème signalé, en texte simple. */
   description?: string | null;
-  equipment?: string | null;
-  contactName?: string | null;
-  contactPhone?: string | null;
-  photos?: WorkOrderPhoto[];
+  clientId: string;
+  /** 'appel_service' | 'bon_installation' … (shared/ du portail). */
+  docType: string | null;
+  /** Notes de travail du technicien, en texte simple. */
+  workNotes: string;
 }
 
 export interface ChangeWorkOrderStatusInput {

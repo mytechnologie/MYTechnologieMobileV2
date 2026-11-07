@@ -13,7 +13,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0a1f3d"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ca.mytechnologie.mytechservice",
@@ -39,6 +41,14 @@
           "image": "./assets/icon.png",
           "resizeMode": "contain",
           "backgroundColor": "#0a1f3d"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "La caméra sert à photographier le travail effectué sur les bons de travail.",
+          "photosPermission": false,
+          "microphonePermission": false
         }
       ]
     ],

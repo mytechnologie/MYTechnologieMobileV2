@@ -11,7 +11,11 @@
  * Les ids sont des nombres côté serveur ; l'app les manipule en chaînes
  * (paramètres de route) et la conversion se fait ICI.
  */
+import * as FileSystem from 'expo-file-system/legacy';
 import { trpc } from './client';
+import { API_BASE } from './config';
+import { getAuthHeaders } from '../auth/session';
+import { htmlToText, textToHtml } from '../lib/richtext';
 import type {
   ChangeWorkOrderStatusInput,
   CreateTimesheetEntryInput,
@@ -32,6 +36,7 @@ import type {
   VerifyLoginOtpResponse,
   WorkOrderDetail,
   WorkOrderListItem,
+  WorkOrderPhoto,
 } from './types';
 
 /* ------------------------------ auth (connexion) ------------------------------ */
@@ -139,6 +144,10 @@ export const projectTasks = {
 interface WorkOrderRow {
   id: number;
   ticketNumber: string;
+  clientId: number;
+  technicianId: number | null;
+  docType?: string | null;
+  installDescription?: string | null;
   status: string;
   priority?: string | null;
   serviceType: string | null;
@@ -159,7 +168,9 @@ const LEGACY_STATUS: Record<string, string> = {
 };
 
 function toWorkOrder(r: WorkOrderRow): WorkOrderDetail {
-  const firstLine = (r.problemDescription ?? '').split('\n')[0]?.trim() ?? '';
+  const problem = htmlToText(r.problemDescription);
+  const firstLine = problem.split('\n')[0]?.trim() ?? '';
+  const isInstall = r.docType === 'bon_installation';
   return {
     id: String(r.id),
     number: r.ticketNumber,
@@ -168,9 +179,44 @@ function toWorkOrder(r: WorkOrderRow): WorkOrderDetail {
     status: LEGACY_STATUS[r.status] ?? r.status,
     scheduledDate: r.serviceDate ? new Date(r.serviceDate).toISOString() : null,
     address: r.location,
-    description: r.problemDescription,
+    description: problem || null,
+    clientId: String(r.clientId),
+    docType: r.docType ?? null,
+    workNotes: htmlToText(isInstall ? r.installDescription : r.actionsTaken),
   };
 }
+
+/** Fiche client (clients.get) : de quoi appeler et se rendre sur place. */
+interface ClientRow {
+  name: string;
+  phone: string | null;
+  address: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+}
+
+/** Envoie un fichier local en photo du bon (route REST multipart du portail). */
+async function uploadWorkOrderFile(
+  workOrderId: string,
+  file: { uri: string; mimeType: string; name: string },
+  caption: string,
+): Promise<void> {
+  const form = new FormData();
+  form.append('caption', caption);
+  // React Native accepte { uri, type, name } comme fichier de FormData.
+  form.append('file', { uri: file.uri, type: file.mimeType, name: file.name } as unknown as Blob);
+  const res = await fetch(`${API_BASE}/api/work-orders/${Number(workOrderId)}/photos`, {
+    method: 'POST',
+    headers: { 'x-mobile-app': 'true', ...getAuthHeaders() },
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `Envoi refusé (${res.status}).`);
+  }
+}
+
+export const SIGNATURE_CAPTION = 'Signature du client';
 
 export const workOrders = {
   /** Le portail limite déjà un technicien à ses bons (work_orders.view_assigned). */
@@ -183,6 +229,52 @@ export const workOrders = {
   },
   getById: async (id: string): Promise<WorkOrderDetail> =>
     toWorkOrder(await trpc.workOrders.get.query({ id: Number(id) })),
+  client: async (clientId: string): Promise<ClientRow | null> =>
+    (await trpc.clients.get.query({ id: Number(clientId) })) ?? null,
+
+  photos: async (id: string): Promise<WorkOrderPhoto[]> => {
+    const woId = Number(id);
+    const [rows, urls] = await Promise.all([
+      trpc.workOrders.getPhotos.query({ workOrderId: woId }) as Promise<
+        { id: number; caption: string | null; uploadedAt: Date | string | null }[]
+      >,
+      trpc.workOrders.getPhotoUrls.query({ workOrderId: woId }) as Promise<Record<number, string>>,
+    ]);
+    return rows
+      .filter(r => urls[r.id])
+      .map(r => ({
+        id: String(r.id),
+        url: urls[r.id]!,
+        caption: r.caption,
+        createdAt: r.uploadedAt ? new Date(r.uploadedAt).toISOString() : null,
+      }));
+  },
+
+  /** Photo prise avec l'appareil (JPEG). */
+  addPhoto: (id: string, uri: string, caption = ''): Promise<void> =>
+    uploadWorkOrderFile(id, { uri, mimeType: 'image/jpeg', name: `photo-${Date.now()}.jpg` }, caption),
+
+  /** Signature dessinée (data URL PNG) : enregistrée comme photo légendée du bon. */
+  addSignature: async (id: string, dataUrl: string): Promise<void> => {
+    const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+    const path = `${FileSystem.cacheDirectory}signature-${Date.now()}.png`;
+    await FileSystem.writeAsStringAsync(path, base64, { encoding: FileSystem.EncodingType.Base64 });
+    try {
+      await uploadWorkOrderFile(id, { uri: path, mimeType: 'image/png', name: 'signature.png' }, SIGNATURE_CAPTION);
+    } finally {
+      await FileSystem.deleteAsync(path, { idempotent: true });
+    }
+  },
+
+  /** Notes de travail : actionsTaken (installDescription pour un bon d'installation). */
+  saveNotes: (id: string, docType: string | null, text: string): Promise<{ success: boolean }> =>
+    trpc.workOrders.update.mutate({
+      id: Number(id),
+      ...(docType === 'bon_installation'
+        ? { installDescription: textToHtml(text) }
+        : { actionsTaken: textToHtml(text) }),
+    }),
+
   /** Transitions et droits vérifiés par le portail (STATUS_TRANSITIONS). */
   changeStatus: (input: ChangeWorkOrderStatusInput): Promise<{ success: boolean }> =>
     trpc.workOrders.changeStatus.mutate({ id: Number(input.id), status: input.status }),
