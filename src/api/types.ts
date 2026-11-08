@@ -337,3 +337,128 @@ export interface SubmitTimesheetEntriesInput {
   /** Ids des entrées brouillon à soumettre. */
   ids: string[];
 }
+
+/* -------------------------------------------------------------------------- */
+/* Repris de la branche iPad : création de bon, sélecteurs, Cédule            */
+/* -------------------------------------------------------------------------- */
+
+export type ApiDate = string | Date | null;
+
+
+/** Le nom du client N'EST PAS dans work_orders : on résout via clients.list. */
+export interface ClientListItem {
+  id: number;
+  name: string;
+  city?: string | null;
+  address?: string | null;
+}
+
+
+/**
+ * users.list renvoie la ligne `users` complète (+ clientIds). On ne type que ce
+ * dont l'app a besoin pour l'assignation d'un bon de travail.
+ * ⚠️ Requiert la permission `users.view` (rôles élevés) — dégrader si refusé.
+ */
+export interface UserListItem {
+  id: number;
+  name?: string | null;
+  email?: string | null;
+  role: UserRole;
+  isActive?: boolean;
+  phone?: string | null;
+}
+
+
+/** Ligne `service_types` active. `serviceType` du BT stocke le `name` (string). */
+export interface ServiceTypeItem {
+  id: number;
+  name: string;
+  isActive?: boolean;
+}
+
+
+/** Ligne brute work_orders, telle que le formulaire de création la manipule. */
+export interface WorkOrder {
+  id: number;
+  ticketNumber: string;
+  clientId: number;
+  technicianId?: number | null;
+  status: WorkOrderStatus;
+  /** Le "titre" métier du bon. */
+  serviceType?: string | null;
+  /** L'"adresse" du service. */
+  location?: string | null;
+  serviceDate?: ApiDate;
+  durationMinutes?: number | null;
+  problemDescription?: string | null;
+  actionsTaken?: string | null;
+  followUp?: string | null;
+  materialsInternal?: string | null;
+  clientNote?: string | null;
+  dispatchedAt?: ApiDate;
+  approvedAt?: ApiDate;
+  createdAt?: ApiDate;
+  updatedAt?: ApiDate;
+}
+
+
+/**
+ * Création d'un bon de travail (workOrders.create).
+ * `clientId` requis ; `ticketNumber` est généré automatiquement côté backend.
+ * `technicianId` omis → le backend assigne le créateur.
+ */
+export interface CreateWorkOrderInput {
+  clientId: number;
+  technicianId?: number | null;
+  serviceType?: string | null;
+  location?: string | null;
+  serviceDate?: Date | null;
+  durationMinutes?: number | null;
+  problemDescription?: string | null;
+  actionsTaken?: string | null;
+  followUp?: string | null;
+  materialsInternal?: string | null;
+}
+
+/** Réponse de workOrders.create. */
+export interface CreateWorkOrderResult {
+  success: boolean;
+  workOrder?: WorkOrder | null;
+}
+
+
+export interface ScheduleItem {
+  id: number;
+  userId: number;
+  /** Nom de l'utilisateur (jointure backend). */
+  userName?: string | null;
+  /** YYYY-MM-DD. */
+  workDate: string;
+  /** HH:MM. */
+  startTime: string;
+  /** HH:MM. */
+  endTime: string;
+  title: string;
+  notes?: string | null;
+  color?: string | null;
+  status?: string | null;
+  createdAt?: ApiDate;
+  updatedAt?: ApiDate;
+}
+
+/** Entrée de création/màj d'un bloc d'horaire. userId requis à la création. */
+
+/** Entrée de création/màj d'un bloc d'horaire. userId requis à la création. */
+export interface ScheduleInput {
+  userId: number;
+  /** YYYY-MM-DD. */
+  workDate: string;
+  /** HH:MM. */
+  startTime: string;
+  /** HH:MM. */
+  endTime: string;
+  title: string;
+  notes?: string | null;
+  color?: string | null;
+  status?: string;
+}

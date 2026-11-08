@@ -1,6 +1,8 @@
 /**
- * Liste des projets (admin/manager) : statut, client, avancement.
+ * Projets — adaptatif : liste puis détail sur téléphone ; master-détail sur
+ * iPad (liste à gauche, suivi du projet à droite, même vue partagée).
  */
+import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +12,9 @@ import {
   ProgressBar,
 } from '../../../src/components/Primitives';
 import { EmptyState, ErrorState, LoadingState } from '../../../src/components/States';
+import { MasterDetail } from '../../../src/components/MasterDetail';
+import { ProjectDetailView } from '../../../src/views/ProjectDetailView';
+import { useResponsive } from '../../../src/lib/responsive';
 import { projects as projectsApi } from '../../../src/api/endpoints';
 import { useQuery } from '../../../src/api/useApi';
 import { projectStatusStyle } from '../../../src/lib/format';
@@ -17,11 +22,19 @@ import { formatHours } from '../../../src/lib/time';
 import type { ProjectListItem } from '../../../src/api/types';
 import { colors, spacing, typography } from '../../../src/theme';
 
-function ProjectRow({ item, onPress }: { item: ProjectListItem; onPress: () => void }) {
+function ProjectRow({
+  item,
+  selected,
+  onPress,
+}: {
+  item: ProjectListItem;
+  selected: boolean;
+  onPress: () => void;
+}) {
   const status = projectStatusStyle(item.status);
   const progress = item.progress ?? 0;
   return (
-    <Card style={styles.card} onPress={onPress}>
+    <Card style={[styles.card, selected && styles.cardSelected]} onPress={onPress}>
       <View style={styles.rowTop}>
         <Text style={styles.name} numberOfLines={1}>
           {item.name}
@@ -49,8 +62,13 @@ function ProjectRow({ item, onPress }: { item: ProjectListItem; onPress: () => v
   );
 }
 
-export default function ProjectsListScreen() {
-  const router = useRouter();
+function ProjectsList({
+  selectedId,
+  onSelect,
+}: {
+  selectedId?: string | null;
+  onSelect: (id: string) => void;
+}) {
   const { data, loading, error, refetch, refreshing } = useQuery(
     () => projectsApi.list(),
     [],
@@ -69,7 +87,8 @@ export default function ProjectsListScreen() {
       renderItem={({ item }) => (
         <ProjectRow
           item={item}
-          onPress={() => router.push(`/(tabs)/projects/${item.id}`)}
+          selected={selectedId === item.id}
+          onPress={() => onSelect(item.id)}
         />
       )}
       ListEmptyComponent={
@@ -83,9 +102,28 @@ export default function ProjectsListScreen() {
   );
 }
 
+export default function ProjectsScreen() {
+  const router = useRouter();
+  const { twoPane } = useResponsive();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  if (twoPane) {
+    return (
+      <MasterDetail
+        master={<ProjectsList selectedId={selectedId} onSelect={setSelectedId} />}
+        detail={selectedId ? <ProjectDetailView key={selectedId} id={selectedId} embedded /> : null}
+        empty={{ icon: 'briefcase-outline', message: 'Sélectionnez un projet.' }}
+      />
+    );
+  }
+
+  return <ProjectsList onSelect={id => router.push(`/(tabs)/projects/${id}`)} />;
+}
+
 const styles = StyleSheet.create({
   list: { padding: spacing.lg, gap: spacing.md, flexGrow: 1 },
   card: { gap: spacing.sm },
+  cardSelected: { borderColor: colors.navy, borderWidth: 2 },
   rowTop: {
     flexDirection: 'row',
     alignItems: 'center',

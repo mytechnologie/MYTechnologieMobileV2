@@ -51,7 +51,11 @@ Le portail filtre ce que chacun voit (un technicien ne reçoit que ses bons). Vo
 ## Build TestFlight
 
 Version affichée : **2.0.0** (`app.json`), pour passer devant la version déjà publiée
-(cachée) sur l'App Store. Le numéro de build est géré par EAS (`appVersionSource: remote`).
+(cachée) sur l'App Store. Le numéro de build vit dans `app.json` (`ios.buildNumber`,
+`android.versionCode`, `appVersionSource: local`) et `autoIncrement` l'augmente à chaque
+build de production. `eas.json` porte aussi l'URL de l'API et l'app App Store Connect
+(`submit.production.ios.ascAppId`). Les workflows `.eas/workflows/` lancent build +
+envoi TestFlight depuis expo.dev.
 
 ```bash
 npm i -g eas-cli

@@ -25,6 +25,13 @@ import type {
   ProjectDevice,
   PhaseStatus,
   FieldDeviceInput,
+  ClientListItem,
+  UserListItem,
+  ServiceTypeItem,
+  ScheduleItem,
+  ScheduleInput,
+  CreateWorkOrderInput,
+  CreateWorkOrderResult,
   InvestigationOption,
   LoginInput,
   LoginResponse,
@@ -283,6 +290,15 @@ export const workOrders = {
   },
 
   /** Notes de travail : actionsTaken (installDescription pour un bon d'installation). */
+  /** Création (admin/manager, permission work_orders.create). Textes riches → HTML. */
+  create: (input: CreateWorkOrderInput): Promise<CreateWorkOrderResult> =>
+    trpc.workOrders.create.mutate({
+      ...input,
+      problemDescription: input.problemDescription ? textToHtml(input.problemDescription) : input.problemDescription,
+      actionsTaken: input.actionsTaken ? textToHtml(input.actionsTaken) : input.actionsTaken,
+      followUp: input.followUp ? textToHtml(input.followUp) : input.followUp,
+    }),
+
   saveNotes: (id: string, docType: string | null, text: string): Promise<{ success: boolean }> =>
     trpc.workOrders.update.mutate({
       id: Number(id),
@@ -517,4 +533,38 @@ export const approvals = {
     trpc.timesheet.approve.mutate({ ids: ids.map(Number) }),
   reject: (id: string, reason: string): Promise<{ success: boolean }> =>
     trpc.timesheet.reject.mutate({ id: Number(id), reason }),
+};
+
+// ─── Repris de la branche iPad : clients, utilisateurs, types de service, Cédule ─
+
+function unwrapItems<T>(res: unknown): T[] {
+  if (Array.isArray(res)) return res as T[];
+  const items = (res as { items?: unknown })?.items;
+  return Array.isArray(items) ? (items as T[]) : [];
+}
+
+export const clients = {
+  /** clients.list → { items, total } ; 500 pour avoir tous les clients au sélecteur. */
+  list: async (input?: { search?: string; limit?: number }): Promise<ClientListItem[]> =>
+    unwrapItems<ClientListItem>(await trpc.clients.list.query({ limit: 500, ...(input ?? {}) })),
+};
+
+export const users = {
+  /** Requiert users.view (rôles élevés) : l'appelant dégrade si refusé. */
+  list: (): Promise<UserListItem[]> => trpc.users.list.query(),
+};
+
+export const serviceTypes = {
+  listActive: (): Promise<ServiceTypeItem[]> => trpc.serviceTypes.listActive.query(),
+};
+
+/** Cédule (server/routers/calendar.ts). */
+export const schedule = {
+  list: (input?: { startDate?: string; endDate?: string; userId?: number }): Promise<ScheduleItem[]> =>
+    trpc.calendar.list.query(input ?? {}),
+  create: (input: ScheduleInput): Promise<{ id: number }> => trpc.calendar.create.mutate(input),
+  /** Le portail attend { id, data }. */
+  update: (id: number, data: Partial<ScheduleInput>): Promise<{ success: boolean }> =>
+    trpc.calendar.update.mutate({ id, data }),
+  remove: (id: number): Promise<{ success: boolean }> => trpc.calendar.delete.mutate({ id }),
 };

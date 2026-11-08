@@ -24,6 +24,8 @@ android/
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+# iOS crash reports (diagnostic artifacts, not source)
+*.ips
 
 # macOS
 .DS_Store
