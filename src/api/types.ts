@@ -43,7 +43,7 @@ export interface Session {
   auth: SessionAuth;
   /** Session par jeton (auth.login + code SMS), la seule depuis la phase 0. */
   mode: 'token';
-  /** Expiration absolue (epoch ms). Portail = 8h. */
+  /** Expiration absolue (epoch ms) : 30 jours après la connexion. */
   expiresAt: number;
 }
 
@@ -238,8 +238,31 @@ export interface WorkOrderDetail extends WorkOrderListItem {
   clientId: string;
   /** 'appel_service' | 'bon_installation' … (shared/ du portail). */
   docType: string | null;
-  /** Notes de travail du technicien, en texte simple. */
-  workNotes: string;
+  /** Champs de contenu du bon, en texte simple (HTML au portail). */
+  content: WorkOrderContent;
+  /** Tests effectués (bon d'installation seulement). */
+  tests: InstallTest[];
+}
+
+/** Mêmes champs que le formulaire du bon sur le portail (WorkOrderEdit). */
+export interface WorkOrderContent {
+  /** Appel de service. */
+  problemDescription: string;
+  actionsTaken: string;
+  /** Bon d'installation. */
+  installRequest: string;
+  installDescription: string;
+  /** Matériaux / pièces utilisés (interne). */
+  materialsInternal: string;
+  /** Admin seulement. */
+  followUp: string;
+  /** Admin seulement ; texte simple, imprimé sur le PDF client. */
+  clientNote: string;
+}
+
+export interface InstallTest {
+  label: string;
+  checked: boolean;
 }
 
 export interface ChangeWorkOrderStatusInput {

@@ -44,6 +44,8 @@ import type {
   UpdateTimesheetEntryInput,
   VerifyLoginOtpInput,
   VerifyLoginOtpResponse,
+  WorkOrderContent,
+  InstallTest,
   WorkOrderDetail,
   WorkOrderListItem,
   WorkOrderPhoto,
@@ -170,7 +172,12 @@ interface WorkOrderRow {
   clientId: number;
   technicianId: number | null;
   docType?: string | null;
+  installRequest?: string | null;
   installDescription?: string | null;
+  installTests?: { label: string; checked: boolean; sortOrder?: number | null }[];
+  materialsInternal?: string | null;
+  followUp?: string | null;
+  clientNote?: string | null;
   status: string;
   priority?: string | null;
   serviceType: string | null;
@@ -205,7 +212,18 @@ function toWorkOrder(r: WorkOrderRow): WorkOrderDetail {
     description: problem || null,
     clientId: String(r.clientId),
     docType: r.docType ?? null,
-    workNotes: htmlToText(isInstall ? r.installDescription : r.actionsTaken),
+    content: {
+      problemDescription: problem,
+      actionsTaken: htmlToText(r.actionsTaken),
+      installRequest: htmlToText(r.installRequest),
+      installDescription: htmlToText(r.installDescription),
+      materialsInternal: htmlToText(r.materialsInternal),
+      followUp: htmlToText(r.followUp),
+      clientNote: r.clientNote ?? '',
+    },
+    tests: isInstall
+      ? (r.installTests ?? []).map(t => ({ label: t.label, checked: !!t.checked }))
+      : [],
   };
 }
 
@@ -299,13 +317,33 @@ export const workOrders = {
       followUp: input.followUp ? textToHtml(input.followUp) : input.followUp,
     }),
 
-  saveNotes: (id: string, docType: string | null, text: string): Promise<{ success: boolean }> =>
-    trpc.workOrders.update.mutate({
-      id: Number(id),
-      ...(docType === 'bon_installation'
-        ? { installDescription: textToHtml(text) }
-        : { actionsTaken: textToHtml(text) }),
-    }),
+  /**
+   * Contenu du bon, comme le formulaire du portail. Seuls les champs modifiés
+   * partent : un champ riche non touché garde sa mise en forme (gras, listes).
+   * Le portail ignore les champs que le rôle ou le type de bon ne permet pas.
+   */
+  saveContent: (
+    id: string,
+    changed: Partial<WorkOrderContent>,
+    tests?: InstallTest[],
+  ): Promise<{ success: boolean }> => {
+    const body: Record<string, unknown> = { id: Number(id) };
+    for (const [key, value] of Object.entries(changed)) {
+      const text = (value ?? '').trim();
+      // La note client est du texte simple au portail ; le reste est du HTML.
+      body[key] = !text ? null : key === 'clientNote' ? text : textToHtml(text);
+    }
+    if (tests) {
+      body.tests = tests
+        .filter(t => t.label.trim())
+        .map((t, i) => ({ label: t.label.trim(), checked: t.checked, sortOrder: i }));
+    }
+    return trpc.workOrders.update.mutate(body);
+  },
+
+  /** Admin et technicien (techOrAdminProcedure au portail) ; l'app le réserve aux admins. */
+  deletePhoto: (photoId: string): Promise<{ success: boolean }> =>
+    trpc.workOrders.deletePhoto.mutate({ photoId: Number(photoId) }),
 
   /** Transitions et droits vérifiés par le portail (STATUS_TRANSITIONS). */
   changeStatus: (input: ChangeWorkOrderStatusInput): Promise<{ success: boolean }> =>
@@ -368,6 +406,20 @@ function entryBody(input: CreateTimesheetEntryInput) {
   };
 }
 
+/**
+ * Les routes d'heures exigent l'accès au portail employé (users.portalAccess).
+ * Sans lui le portail répond 401 « Session portail manquante » : message clair.
+ */
+function portalAccessError(e: unknown): never {
+  const msg = e instanceof Error ? e.message : '';
+  if (/session portail|accès portail/i.test(msg)) {
+    throw new Error(
+      "Votre compte n'a pas l'accès au portail employé. Un administrateur peut l'activer sur le portail : fiche de l'employé, « Accès au portail employé » (un département est requis).",
+    );
+  }
+  throw e;
+}
+
 export const timesheet = {
   projectOptions: (): Promise<ProjectOption[]> => trpc.timesheet.projectOptions.query(),
   investigationOptions: (): Promise<InvestigationOption[]> =>
@@ -375,7 +427,7 @@ export const timesheet = {
 
   myEntries: async (): Promise<TimesheetEntry[]> => {
     const [rows, projectsOpts, investigationsOpts] = await Promise.all([
-      trpc.timesheet.myEntries.query() as Promise<TimeEntryRow[]>,
+      (trpc.timesheet.myEntries.query() as Promise<TimeEntryRow[]>).catch(portalAccessError),
       // Les libellés sont un confort : une erreur ici ne bloque pas la liste.
       timesheet.projectOptions().catch(() => [] as ProjectOption[]),
       timesheet.investigationOptions().catch(() => [] as InvestigationOption[]),

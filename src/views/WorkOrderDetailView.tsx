@@ -1,8 +1,9 @@
 /**
  * Vue partagée (téléphone : route [id] ; iPad : panneau de droite).
  * Bon de travail sur place (maquette écran 3) : étapes du parcours terrain,
- * appeler / itinéraire, problème signalé, photos, notes de travail et fin du
- * bon avec la signature du client.
+ * appeler / itinéraire, photos, contenu du bon (mêmes champs que le
+ * formulaire du portail, selon le type de bon et le rôle) et fin du bon avec
+ * la signature du client.
  */
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -24,8 +25,10 @@ import { Screen } from '../components/Screen';
 import { ErrorState, LoadingState } from '../components/States';
 import { SIGNATURE_CAPTION, workOrders } from '../api/endpoints';
 import { useMutation, useQuery } from '../api/useApi';
+import { useAuth } from '../auth/AuthContext';
+import { isElevated } from '../auth/access';
 import { formatDate, workOrderStatusStyle } from '../lib/format';
-import type { WorkOrderStatus } from '../api/types';
+import type { InstallTest, WorkOrderContent, WorkOrderStatus } from '../api/types';
 import { colors, radius, spacing, typography } from '../theme';
 
 /** Parcours terrain affiché en étapes. */
@@ -51,6 +54,39 @@ function stepIndex(status: string): number {
   return -1;
 }
 
+type ContentKey = keyof WorkOrderContent;
+
+interface FieldDef {
+  key: ContentKey;
+  label: string;
+  placeholder: string;
+  /** Badge « Interne » : jamais sur le PDF client. */
+  internal?: boolean;
+}
+
+/** Champs du formulaire du portail (WorkOrderEdit), dans le même ordre. */
+function fieldsFor(isInstall: boolean, admin: boolean): FieldDef[] {
+  const main: FieldDef[] = isInstall
+    ? [
+        { key: 'installRequest', label: "Demande d'installation", placeholder: 'Ce que le client a demandé…' },
+        { key: 'installDescription', label: "Description de l'installation", placeholder: 'Ce qui a été installé…' },
+      ]
+    : [
+        { key: 'problemDescription', label: 'Problème / travaux demandés', placeholder: 'Le problème signalé…' },
+        { key: 'actionsTaken', label: 'Actions effectuées', placeholder: 'Ce qui a été fait…' },
+      ];
+  const rest: FieldDef[] = [
+    { key: 'materialsInternal', label: 'Matériaux / pièces utilisés', placeholder: 'Pièces, quantités…', internal: true },
+  ];
+  if (admin) {
+    rest.push(
+      { key: 'followUp', label: 'Suivi requis / notes', placeholder: 'Un suivi est-il nécessaire ?' },
+      { key: 'clientNote', label: 'Note pour le client (PDF)', placeholder: 'Message imprimé sur le PDF du client…' },
+    );
+  }
+  return [...main, ...rest];
+}
+
 function openPhone(phone: string) {
   void Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`);
 }
@@ -64,6 +100,8 @@ function openMaps(address: string) {
 export function WorkOrderDetailView({ id, embedded = false }: { id: string; embedded?: boolean }) {
   const navigation = useNavigation();
   const router = useRouter();
+  const { user } = useAuth();
+  const admin = !!user && isElevated(user);
   const workOrderId = String(id);
 
   const woQ = useQuery(() => workOrders.getById(workOrderId), [workOrderId]);
@@ -75,8 +113,10 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
   const photosQ = useQuery(() => workOrders.photos(workOrderId).catch(() => []), [workOrderId]);
   const changeStatus = useMutation(workOrders.changeStatus);
 
-  const [notes, setNotes] = useState<string | null>(null);
-  const [savingNotes, setSavingNotes] = useState(false);
+  const [draft, setDraft] = useState<Partial<WorkOrderContent>>({});
+  const [testsDraft, setTestsDraft] = useState<InstallTest[] | null>(null);
+  const [newTest, setNewTest] = useState('');
+  const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
@@ -107,8 +147,16 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
   const address = wo.address || client?.address || null;
   const photos = (photosQ.data ?? []).filter(p => p.caption !== SIGNATURE_CAPTION);
   const signed = (photosQ.data ?? []).some(p => p.caption === SIGNATURE_CAPTION);
-  const notesValue = notes ?? wo.workNotes;
-  const notesDirty = notes !== null && notes !== wo.workNotes;
+  const isInstall = wo.docType === 'bon_installation';
+  const fields = fieldsFor(isInstall, admin);
+  const valueOf = (k: ContentKey) => draft[k] ?? wo.content[k];
+  const changed = Object.fromEntries(
+    (Object.keys(draft) as ContentKey[])
+      .filter(k => draft[k] !== wo.content[k])
+      .map(k => [k, draft[k]]),
+  ) as Partial<WorkOrderContent>;
+  const tests = testsDraft ?? wo.tests;
+  const dirty = Object.keys(changed).length > 0 || testsDraft !== null;
 
   const advance = async (to: WorkOrderStatus) => {
     try {
@@ -119,17 +167,48 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
     }
   };
 
-  const saveNotes = async () => {
-    setSavingNotes(true);
+  const save = async (): Promise<boolean> => {
+    setSaving(true);
     try {
-      await workOrders.saveNotes(workOrderId, wo.docType, notesValue);
-      setNotes(null);
+      await workOrders.saveContent(workOrderId, changed, testsDraft ?? undefined);
+      setDraft({});
+      setTestsDraft(null);
       woQ.refetch();
+      return true;
     } catch (e) {
-      Alert.alert('Notes', e instanceof Error ? e.message : 'Enregistrement impossible.');
+      Alert.alert('Bon de travail', e instanceof Error ? e.message : 'Enregistrement impossible.');
+      return false;
     } finally {
-      setSavingNotes(false);
+      setSaving(false);
     }
+  };
+
+  const toggleTest = (i: number) =>
+    setTestsDraft(tests.map((t, j) => (j === i ? { ...t, checked: !t.checked } : t)));
+  const removeTest = (i: number) => setTestsDraft(tests.filter((_, j) => j !== i));
+  const addTest = () => {
+    const label = newTest.trim();
+    if (!label) return;
+    setTestsDraft([...tests, { label, checked: false }]);
+    setNewTest('');
+  };
+
+  const deletePhoto = (photoId: string) => {
+    Alert.alert('Supprimer la photo', 'La photo sera retirée du bon. Continuer ?', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await workOrders.deletePhoto(photoId);
+            photosQ.refetch();
+          } catch (e) {
+            Alert.alert('Photo', e instanceof Error ? e.message : 'Suppression impossible.');
+          }
+        },
+      },
+    ]);
   };
 
   const takePhoto = async () => {
@@ -153,8 +232,8 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
   };
 
   const finish = async () => {
-    // Les notes non enregistrées partent avant la signature.
-    if (notesDirty) await saveNotes();
+    // Le contenu non enregistré part avant la signature.
+    if (dirty && !(await save())) return;
     router.push({ pathname: '/(tabs)/work-orders/signature', params: { id: workOrderId } });
   };
 
@@ -218,18 +297,24 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
         </View>
       </Card>
 
-      {wo.description ? (
-        <Card style={styles.block}>
-          <Text style={styles.section}>PROBLÈME SIGNALÉ</Text>
-          <Text style={styles.body}>{wo.description}</Text>
-        </Card>
-      ) : null}
-
       <Card style={styles.block}>
         <Text style={styles.section}>PHOTOS ({photos.length})</Text>
         <View style={styles.grid}>
           {photos.map(p => (
-            <Image key={p.id} source={{ uri: p.url }} style={styles.thumb} accessibilityLabel={p.caption ?? 'Photo du bon'} />
+            <View key={p.id}>
+              <Image source={{ uri: p.url }} style={styles.thumb} accessibilityLabel={p.caption ?? 'Photo du bon'} />
+              {admin ? (
+                <Pressable
+                  style={styles.thumbDelete}
+                  onPress={() => deletePhoto(p.id)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Supprimer la photo"
+                >
+                  <Ionicons name="close" size={14} color={colors.textOnNavy} />
+                </Pressable>
+              ) : null}
+            </View>
           ))}
           <Pressable
             style={[styles.thumb, styles.addThumb]}
@@ -244,17 +329,68 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
       </Card>
 
       <Card style={styles.block}>
-        <Text style={styles.section}>NOTES DE TRAVAIL</Text>
-        <TextInput
-          style={styles.notes}
-          multiline
-          placeholder="Ce qui a été fait, pièces remplacées…"
-          placeholderTextColor={colors.disabled}
-          value={notesValue}
-          onChangeText={setNotes}
-        />
-        {notesDirty ? (
-          <Button title="Enregistrer les notes" variant="secondary" loading={savingNotes} onPress={saveNotes} />
+        {fields.map(f => (
+          <View key={f.key} style={styles.field}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.section}>{f.label.toUpperCase()}</Text>
+              {f.internal ? <Text style={styles.internal}>Interne</Text> : null}
+            </View>
+            <TextInput
+              style={styles.notes}
+              multiline
+              placeholder={f.placeholder}
+              placeholderTextColor={colors.disabled}
+              value={valueOf(f.key)}
+              onChangeText={text => setDraft(d => ({ ...d, [f.key]: text }))}
+            />
+          </View>
+        ))}
+
+        {isInstall ? (
+          <View style={styles.field}>
+            <Text style={styles.section}>
+              TESTS EFFECTUÉS ({tests.filter(t => t.checked).length}/{tests.length})
+            </Text>
+            {tests.map((t, i) => (
+              <View key={`${i}-${t.label}`} style={styles.testRow}>
+                <Pressable
+                  style={styles.testCheck}
+                  onPress={() => toggleTest(i)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: t.checked }}
+                  accessibilityLabel={t.label}
+                >
+                  <Ionicons
+                    name={t.checked ? 'checkbox' : 'square-outline'}
+                    size={24}
+                    color={t.checked ? colors.success : colors.textMuted}
+                  />
+                  <Text style={styles.body}>{t.label}</Text>
+                </Pressable>
+                <Pressable onPress={() => removeTest(i)} hitSlop={8} accessibilityLabel={`Retirer ${t.label}`}>
+                  <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+                </Pressable>
+              </View>
+            ))}
+            <View style={styles.testRow}>
+              <TextInput
+                style={[styles.notes, styles.testInput]}
+                placeholder="Ajouter un test…"
+                placeholderTextColor={colors.disabled}
+                value={newTest}
+                onChangeText={setNewTest}
+                onSubmitEditing={addTest}
+                returnKeyType="done"
+              />
+              <Pressable onPress={addTest} hitSlop={8} accessibilityLabel="Ajouter le test">
+                <Ionicons name="add-circle" size={28} color={colors.navy} />
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {dirty ? (
+          <Button title="Enregistrer le bon" variant="primary" loading={saving} onPress={() => void save()} />
         ) : null}
       </Card>
 
@@ -296,6 +432,29 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderStyle: 'dashed',
     borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  field: { gap: spacing.xs },
+  internal: {
+    fontSize: typography.tiny,
+    color: colors.textMuted,
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+  },
+  testRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  testCheck: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs },
+  testInput: { flex: 1, minHeight: 44 },
+  thumbDelete: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.danger,
     alignItems: 'center',
     justifyContent: 'center',
   },

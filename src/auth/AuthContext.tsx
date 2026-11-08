@@ -2,7 +2,9 @@
  * Contexte d'authentification — connexion unique du portail :
  * courriel + mot de passe (auth.login), puis code SMS (auth.verifyLoginOtp).
  * Le jeton renvoyé part en `Authorization: Bearer`. L'app redemande la
- * connexion après 8 h et se déconnecte sur 401.
+ * connexion (et donc le code SMS) après 30 jours. Un 401 ne déconnecte que si
+ * le portail refuse aussi la session (auth.me) : une route qui refuse l'accès
+ * ne doit pas renvoyer au login.
  */
 import React, {
   createContext,
@@ -19,7 +21,7 @@ import { setUnauthorizedHandler } from '../api/client';
 import type { AuthUser, Session } from '../api/types';
 import { clearSession, loadSession, saveSession, setActiveAuth } from './session';
 
-const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
+const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Étape « code SMS » en attente après le mot de passe. */
 export interface OtpChallenge {
@@ -67,20 +69,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (next: Session) => {
       await saveSession(next);
       setSession(next);
-      if (expiryTimer.current) clearTimeout(expiryTimer.current);
-      const ms = Math.max(0, next.expiresAt - Date.now());
-      // Déconnexion automatique à l'expiration (8h).
-      expiryTimer.current = setTimeout(() => {
-        void doSignOut();
-      }, ms);
+      // Déconnexion automatique à l'expiration. setTimeout plafonne à ~24,8 jours
+      // (au-delà il part aussitôt) : on attend par tranches d'au plus 1 jour.
+      const schedule = () => {
+        if (expiryTimer.current) clearTimeout(expiryTimer.current);
+        const left = next.expiresAt - Date.now();
+        if (left <= 0) {
+          void doSignOut();
+          return;
+        }
+        expiryTimer.current = setTimeout(schedule, Math.min(left, 24 * 60 * 60 * 1000));
+      };
+      schedule();
     },
     [doSignOut],
   );
 
   // Restauration au démarrage + handler 401 global.
   useEffect(() => {
+    let checking = false;
     setUnauthorizedHandler(() => {
-      void doSignOut();
+      if (checking) return;
+      checking = true;
+      // Le jeton est-il vraiment rejeté, ou seulement cette route ?
+      auth
+        .me()
+        .then(me => {
+          if (!me) void doSignOut();
+        })
+        .catch(() => {
+          /* hors ligne ou erreur serveur : on garde la session */
+        })
+        .finally(() => {
+          checking = false;
+        });
     });
     void (async () => {
       const restored = await loadSession();
@@ -117,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
         auth: authHeader,
         mode: 'token',
-        expiresAt: Date.now() + EIGHT_HOURS_MS,
+        expiresAt: Date.now() + SESSION_MS,
       });
       void registerForPush();
     },

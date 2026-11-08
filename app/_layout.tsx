@@ -35,7 +35,7 @@ function RootNavigator() {
     if (initializing || !isAuthenticated) return;
     const id = workOrderIdOf(lastResponse ?? null);
     if (id) {
-      router.push(`/(tabs)/work-orders/${id}`);
+      router.push(`/(tabs)/work-orders/${id}`, { withAnchor: true });
       void Notifications.clearLastNotificationResponseAsync();
     }
   }, [lastResponse, initializing, isAuthenticated, router]);
