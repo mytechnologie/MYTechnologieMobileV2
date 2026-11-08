@@ -169,7 +169,7 @@ export default function SignInScreen() {
             )}
           </Card>
 
-          <Text style={styles.footer}>Connecté 8 h, puis la connexion est redemandée.</Text>
+          <Text style={styles.footer}>Vous restez connecté 30 jours sur cet appareil.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

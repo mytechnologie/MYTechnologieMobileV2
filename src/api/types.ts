@@ -43,7 +43,7 @@ export interface Session {
   auth: SessionAuth;
   /** Session par jeton (auth.login + code SMS), la seule depuis la phase 0. */
   mode: 'token';
-  /** Expiration absolue (epoch ms). Portail = 8h. */
+  /** Expiration absolue (epoch ms) : 30 jours après la connexion. */
   expiresAt: number;
 }
 
@@ -238,8 +238,31 @@ export interface WorkOrderDetail extends WorkOrderListItem {
   clientId: string;
   /** 'appel_service' | 'bon_installation' … (shared/ du portail). */
   docType: string | null;
-  /** Notes de travail du technicien, en texte simple. */
-  workNotes: string;
+  /** Champs de contenu du bon, en texte simple (HTML au portail). */
+  content: WorkOrderContent;
+  /** Tests effectués (bon d'installation seulement). */
+  tests: InstallTest[];
+}
+
+/** Mêmes champs que le formulaire du bon sur le portail (WorkOrderEdit). */
+export interface WorkOrderContent {
+  /** Appel de service. */
+  problemDescription: string;
+  actionsTaken: string;
+  /** Bon d'installation. */
+  installRequest: string;
+  installDescription: string;
+  /** Matériaux / pièces utilisés (interne). */
+  materialsInternal: string;
+  /** Admin seulement. */
+  followUp: string;
+  /** Admin seulement ; texte simple, imprimé sur le PDF client. */
+  clientNote: string;
+}
+
+export interface InstallTest {
+  label: string;
+  checked: boolean;
 }
 
 export interface ChangeWorkOrderStatusInput {
@@ -442,6 +465,15 @@ export interface ScheduleItem {
   notes?: string | null;
   color?: string | null;
   status?: string | null;
+  allDay?: boolean | null;
+  location?: string | null;
+  /** Alertes : minutes avant le début (null = aucune). */
+  reminderMinutes?: number | null;
+  reminder2Minutes?: number | null;
+  projectId?: number | null;
+  workOrderId?: number | null;
+  /** calendar.agenda : modifiable par l'utilisateur connecté. */
+  canEdit?: boolean;
   createdAt?: ApiDate;
   updatedAt?: ApiDate;
 }
@@ -461,4 +493,37 @@ export interface ScheduleInput {
   notes?: string | null;
   color?: string | null;
   status?: string;
+  allDay?: boolean;
+  location?: string | null;
+  reminderMinutes?: number | null;
+  reminder2Minutes?: number | null;
+}
+
+/** Une ligne de la Cédule : rendez-vous (calendar_schedules) ou bon assigné. */
+export interface AgendaEntry {
+  /** Unique dans la liste : 'e12' (rendez-vous) ou 'w34' (bon). */
+  key: string;
+  kind: 'event' | 'work_order';
+  /** id du rendez-vous, ou du bon pour kind 'work_order'. */
+  id: number;
+  userId: number;
+  userName: string | null;
+  /** YYYY-MM-DD, date locale. */
+  date: string;
+  /** HH:MM. */
+  start: string;
+  end: string;
+  allDay: boolean;
+  title: string;
+  location: string | null;
+  notes: string | null;
+  color: string | null;
+  reminderMinutes: number | null;
+  reminder2Minutes: number | null;
+  canEdit: boolean;
+}
+
+export interface CalendarPerson {
+  id: number;
+  name: string;
 }

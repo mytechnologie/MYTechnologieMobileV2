@@ -128,7 +128,7 @@ export default function HomeScreen() {
         {approvalGroups.length > 0 ? (
           <View style={styles.myBlock}>
             <SectionTitle>À approuver</SectionTitle>
-            <Card style={styles.woCard} onPress={() => router.push('/(tabs)/timesheet/approvals')}>
+            <Card style={styles.woCard} onPress={() => router.push('/(tabs)/timesheet/approvals', { withAnchor: true })}>
               <View style={styles.woTop}>
                 <Text style={styles.woTitle}>
                   {approvalGroups.length} employé{approvalGroups.length > 1 ? 's' : ''}
@@ -158,7 +158,7 @@ export default function HomeScreen() {
                   <Card
                     key={w.id}
                     style={styles.woCard}
-                    onPress={() => router.push(`/(tabs)/work-orders/${w.id}`)}
+                    onPress={() => router.push(`/(tabs)/work-orders/${w.id}`, { withAnchor: true })}
                   >
                     <View style={styles.woTop}>
                       <Text style={styles.woNumber}>{w.number}</Text>
@@ -203,7 +203,7 @@ export default function HomeScreen() {
         <Button
           title="Saisir des heures"
           variant="gold"
-          onPress={() => router.push('/(tabs)/timesheet/new')}
+          onPress={() => router.push('/(tabs)/timesheet/new', { withAnchor: true })}
           style={styles.cta}
         />
 

@@ -1,6 +1,9 @@
 import { Stack } from 'expo-router';
 import { colors, typography } from '../../../src/theme';
 
+/** Garde l'écran liste sous un écran ouvert depuis un autre onglet (bouton retour). */
+export const unstable_settings = { initialRouteName: 'index' };
+
 export default function WorkOrdersLayout() {
   return (
     <Stack

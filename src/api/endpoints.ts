@@ -29,6 +29,8 @@ import type {
   UserListItem,
   ServiceTypeItem,
   ScheduleItem,
+  AgendaEntry,
+  CalendarPerson,
   ScheduleInput,
   CreateWorkOrderInput,
   CreateWorkOrderResult,
@@ -44,6 +46,8 @@ import type {
   UpdateTimesheetEntryInput,
   VerifyLoginOtpInput,
   VerifyLoginOtpResponse,
+  WorkOrderContent,
+  InstallTest,
   WorkOrderDetail,
   WorkOrderListItem,
   WorkOrderPhoto,
@@ -170,7 +174,12 @@ interface WorkOrderRow {
   clientId: number;
   technicianId: number | null;
   docType?: string | null;
+  installRequest?: string | null;
   installDescription?: string | null;
+  installTests?: { label: string; checked: boolean; sortOrder?: number | null }[];
+  materialsInternal?: string | null;
+  followUp?: string | null;
+  clientNote?: string | null;
   status: string;
   priority?: string | null;
   serviceType: string | null;
@@ -205,7 +214,18 @@ function toWorkOrder(r: WorkOrderRow): WorkOrderDetail {
     description: problem || null,
     clientId: String(r.clientId),
     docType: r.docType ?? null,
-    workNotes: htmlToText(isInstall ? r.installDescription : r.actionsTaken),
+    content: {
+      problemDescription: problem,
+      actionsTaken: htmlToText(r.actionsTaken),
+      installRequest: htmlToText(r.installRequest),
+      installDescription: htmlToText(r.installDescription),
+      materialsInternal: htmlToText(r.materialsInternal),
+      followUp: htmlToText(r.followUp),
+      clientNote: r.clientNote ?? '',
+    },
+    tests: isInstall
+      ? (r.installTests ?? []).map(t => ({ label: t.label, checked: !!t.checked }))
+      : [],
   };
 }
 
@@ -299,13 +319,33 @@ export const workOrders = {
       followUp: input.followUp ? textToHtml(input.followUp) : input.followUp,
     }),
 
-  saveNotes: (id: string, docType: string | null, text: string): Promise<{ success: boolean }> =>
-    trpc.workOrders.update.mutate({
-      id: Number(id),
-      ...(docType === 'bon_installation'
-        ? { installDescription: textToHtml(text) }
-        : { actionsTaken: textToHtml(text) }),
-    }),
+  /**
+   * Contenu du bon, comme le formulaire du portail. Seuls les champs modifiés
+   * partent : un champ riche non touché garde sa mise en forme (gras, listes).
+   * Le portail ignore les champs que le rôle ou le type de bon ne permet pas.
+   */
+  saveContent: (
+    id: string,
+    changed: Partial<WorkOrderContent>,
+    tests?: InstallTest[],
+  ): Promise<{ success: boolean }> => {
+    const body: Record<string, unknown> = { id: Number(id) };
+    for (const [key, value] of Object.entries(changed)) {
+      const text = (value ?? '').trim();
+      // La note client est du texte simple au portail ; le reste est du HTML.
+      body[key] = !text ? null : key === 'clientNote' ? text : textToHtml(text);
+    }
+    if (tests) {
+      body.tests = tests
+        .filter(t => t.label.trim())
+        .map((t, i) => ({ label: t.label.trim(), checked: t.checked, sortOrder: i }));
+    }
+    return trpc.workOrders.update.mutate(body);
+  },
+
+  /** Admin et technicien (techOrAdminProcedure au portail) ; l'app le réserve aux admins. */
+  deletePhoto: (photoId: string): Promise<{ success: boolean }> =>
+    trpc.workOrders.deletePhoto.mutate({ photoId: Number(photoId) }),
 
   /** Transitions et droits vérifiés par le portail (STATUS_TRANSITIONS). */
   changeStatus: (input: ChangeWorkOrderStatusInput): Promise<{ success: boolean }> =>
@@ -368,6 +408,20 @@ function entryBody(input: CreateTimesheetEntryInput) {
   };
 }
 
+/**
+ * Les routes d'heures exigent l'accès au portail employé (users.portalAccess).
+ * Sans lui le portail répond 401 « Session portail manquante » : message clair.
+ */
+function portalAccessError(e: unknown): never {
+  const msg = e instanceof Error ? e.message : '';
+  if (/session portail|accès portail/i.test(msg)) {
+    throw new Error(
+      "Votre compte n'a pas l'accès au portail employé. Un administrateur peut l'activer sur le portail : fiche de l'employé, « Accès au portail employé » (un département est requis).",
+    );
+  }
+  throw e;
+}
+
 export const timesheet = {
   projectOptions: (): Promise<ProjectOption[]> => trpc.timesheet.projectOptions.query(),
   investigationOptions: (): Promise<InvestigationOption[]> =>
@@ -375,7 +429,7 @@ export const timesheet = {
 
   myEntries: async (): Promise<TimesheetEntry[]> => {
     const [rows, projectsOpts, investigationsOpts] = await Promise.all([
-      trpc.timesheet.myEntries.query() as Promise<TimeEntryRow[]>,
+      (trpc.timesheet.myEntries.query() as Promise<TimeEntryRow[]>).catch(portalAccessError),
       // Les libellés sont un confort : une erreur ici ne bloque pas la liste.
       timesheet.projectOptions().catch(() => [] as ProjectOption[]),
       timesheet.investigationOptions().catch(() => [] as InvestigationOption[]),
@@ -559,7 +613,92 @@ export const serviceTypes = {
 };
 
 /** Cédule (server/routers/calendar.ts). */
+/** Bon daté de calendar.agenda (heure en UTC côté serveur). */
+interface AgendaWorkOrderRow {
+  id: number;
+  ticketNumber: string;
+  technicianId: number | null;
+  technicianName: string | null;
+  serviceDate: Date | string | null;
+  durationMinutes: number | null;
+  serviceType: string | null;
+  location: string | null;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const localYmd = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const localHm = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+/** Couleur des bons dans la Cédule (or de la marque). */
+export const WORK_ORDER_COLOR = '#C9A227';
+
 export const schedule = {
+  /** Rendez-vous des personnes demandées (vide = soi) et leurs bons datés. */
+  agenda: async (input: {
+    startDate: string;
+    endDate: string;
+    userIds?: number[];
+    includeWorkOrders?: boolean;
+  }): Promise<AgendaEntry[]> => {
+    const res: { events: ScheduleItem[]; workOrders: AgendaWorkOrderRow[] } =
+      await trpc.calendar.agenda.query(input);
+    const events: AgendaEntry[] = res.events.map(e => ({
+      key: `e${e.id}`,
+      kind: 'event',
+      id: e.id,
+      userId: e.userId,
+      userName: e.userName ?? null,
+      date: e.workDate,
+      start: e.startTime,
+      end: e.endTime,
+      allDay: !!e.allDay,
+      title: e.title,
+      location: e.location ?? null,
+      notes: e.notes ?? null,
+      color: e.color ?? null,
+      reminderMinutes: e.reminderMinutes ?? null,
+      reminder2Minutes: e.reminder2Minutes ?? null,
+      canEdit: e.canEdit !== false,
+    }));
+    const workOrders: AgendaEntry[] = [];
+    for (const w of res.workOrders) {
+      if (!w.serviceDate || w.technicianId == null) continue;
+      const start = new Date(w.serviceDate);
+      const end = new Date(start.getTime() + (w.durationMinutes || 60) * 60000);
+      // Bon saisi avec une date seule au portail : minuit UTC pile, soit la
+      // veille au soir ici. On le garde en journée entière à sa date UTC.
+      const dateOnly =
+        start.getUTCHours() === 0 && start.getUTCMinutes() === 0 && start.getUTCSeconds() === 0;
+      const date = dateOnly ? start.toISOString().slice(0, 10) : localYmd(start);
+      // Le serveur prend une marge d'un jour : on garde la plage demandée.
+      if (date < input.startDate || date > input.endDate) continue;
+      workOrders.push({
+        key: `w${w.id}`,
+        kind: 'work_order',
+        id: w.id,
+        userId: w.technicianId,
+        userName: w.technicianName,
+        date,
+        start: dateOnly ? '00:00' : localHm(start),
+        end: dateOnly ? '23:59' : localYmd(end) === date ? localHm(end) : '23:59',
+        allDay: dateOnly,
+        title: `${w.ticketNumber}${w.serviceType ? ` · ${w.serviceType}` : ''}`,
+        location: w.location,
+        notes: null,
+        color: WORK_ORDER_COLOR,
+        reminderMinutes: null,
+        reminder2Minutes: null,
+        canEdit: false,
+      });
+    }
+    return [...events, ...workOrders].sort((a, b) =>
+      a.date === b.date
+        ? Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start)
+        : a.date.localeCompare(b.date),
+    );
+  },
+  people: (): Promise<CalendarPerson[]> => trpc.calendar.people.query(),
+
   list: (input?: { startDate?: string; endDate?: string; userId?: number }): Promise<ScheduleItem[]> =>
     trpc.calendar.list.query(input ?? {}),
   create: (input: ScheduleInput): Promise<{ id: number }> => trpc.calendar.create.mutate(input),
