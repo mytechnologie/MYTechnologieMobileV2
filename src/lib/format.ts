@@ -30,6 +30,20 @@ export function toISODate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Durée en minutes → « 2h30 ». */
+export function formatDuration(minutes: number | null | undefined): string {
+  if (minutes == null || Number.isNaN(minutes)) return '—';
+  const total = Math.max(0, Math.round(minutes));
+  return `${Math.floor(total / 60)}h${String(total % 60).padStart(2, '0')}`;
+}
+
+/** Minutes → { hours, minutes } (préremplissage des champs). */
+export function splitDuration(minutes: number | null | undefined): { hours: number; minutes: number } {
+  if (minutes == null || Number.isNaN(minutes)) return { hours: 0, minutes: 0 };
+  const total = Math.max(0, Math.round(minutes));
+  return { hours: Math.floor(total / 60), minutes: total % 60 };
+}
+
 export interface StatusStyle {
   label: string;
   color: string;
@@ -106,6 +120,7 @@ export function projectStatusStyle(status: ProjectStatus): StatusStyle {
 
 const TASK_LABELS: Record<string, StatusStyle> = {
   a_venir: { label: 'À venir', color: colors.textMuted, bg: colors.surfaceAlt },
+  en_cours: { label: 'En cours', color: colors.warning, bg: colors.warningBg },
   terminee: { label: 'Terminée', color: colors.success, bg: colors.successBg },
   todo: { label: 'À faire', color: colors.textMuted, bg: colors.surfaceAlt },
   in_progress: { label: 'En cours', color: colors.warning, bg: colors.warningBg },
@@ -121,6 +136,19 @@ export function taskStatusStyle(status: ProjectTaskStatus): StatusStyle {
       bg: colors.surfaceAlt,
     }
   );
+}
+
+const DEVICE_LABELS: Record<string, StatusStyle> = {
+  prevu: { label: 'Prévu', color: colors.textMuted, bg: colors.surfaceAlt },
+  installe: { label: 'Installé', color: colors.warning, bg: colors.warningBg },
+  configure: { label: 'Configuré', color: colors.info, bg: colors.infoBg },
+  verifie: { label: 'Vérifié', color: colors.success, bg: colors.successBg },
+};
+
+export const DEVICE_STATUS_OPTIONS = ['prevu', 'installe', 'configure', 'verifie'] as const;
+
+export function deviceStatusStyle(status: string): StatusStyle {
+  return DEVICE_LABELS[status] ?? { label: status, color: colors.textMuted, bg: colors.surfaceAlt };
 }
 
 /** Libellé lisible du rôle. */

@@ -1,0 +1,14 @@
+name: Submit iOS to TestFlight
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  submit_ios:
+    name: Submit to TestFlight
+    type: submit
+    env:
+      EXPO_DEBUG: "1"
+    params:
+      platform: ios
+      build_id: 8fd243b5-035a-44ee-a679-3991778fbcfc

@@ -21,7 +21,17 @@ import type {
   CreateTimesheetEntryInput,
   ProjectDetail,
   ProjectListItem,
-  ProjectTask,
+  ProjectPhase,
+  ProjectDevice,
+  PhaseStatus,
+  FieldDeviceInput,
+  ClientListItem,
+  UserListItem,
+  ServiceTypeItem,
+  ScheduleItem,
+  ScheduleInput,
+  CreateWorkOrderInput,
+  CreateWorkOrderResult,
   InvestigationOption,
   LoginInput,
   LoginResponse,
@@ -77,7 +87,9 @@ interface ProjectGetResponse {
     endDate: Date | string | null;
   };
   client: { name: string } | null;
-  phases: { id: number; parentId: number | null; name: string; status: string; sortOrder: number }[];
+  phases: { id: number; parentId: number | null; name: string; status: PhaseStatus; sortOrder: number }[];
+  zones: { id: number; name: string; code: string | null }[];
+  devices: (Omit<ProjectDevice, 'id' | 'zone'> & { id: number; zoneId: number | null })[];
   hours: {
     phases: { phaseId: number; budgetHours: number; timesheetHours: number; punchHours: number }[];
     totals: { budgetHours: number; actualHours: number; pct: number | null };
@@ -104,11 +116,23 @@ export const projects = {
     const res: ProjectGetResponse = await trpc.projects.getById.query({ id: Number(id) });
     const p = res.project;
     const hoursOf = new Map(res.hours.phases.map(h => [h.phaseId, h]));
-    // Phases puis leurs sous-phases (un seul niveau), dans l'ordre du portail.
-    const top = res.phases.filter(ph => ph.parentId == null);
-    const ordered = top.flatMap(ph => [ph, ...res.phases.filter(c => c.parentId === ph.id)]);
+    const zoneOf = new Map(res.zones.map(z => [z.id, z.code ? `${z.code} — ${z.name}` : z.name]));
+    const toPhase = (ph: ProjectGetResponse['phases'][number]): ProjectPhase => {
+      const h = hoursOf.get(ph.id);
+      const done = h ? h.timesheetHours + h.punchHours : 0;
+      return {
+        id: String(ph.id),
+        name: ph.name,
+        status: ph.status,
+        hoursPct: h && h.budgetHours > 0 ? Math.round((done / h.budgetHours) * 100) : null,
+        // Sous-phases dans l'ordre du portail (un seul niveau).
+        children: res.phases.filter(c => c.parentId === ph.id).map(toPhase),
+      };
+    };
     return {
       id: String(p.id),
+      code: p.code,
+      title: p.name,
       name: p.code ? `${p.code} — ${p.name}` : p.name,
       client: res.client?.name ?? null,
       status: p.status,
@@ -119,23 +143,22 @@ export const projects = {
       budgetAmount: p.budget != null ? Number(p.budget) : null,
       startDate: dateOrNull(p.startDate),
       endDate: dateOrNull(p.endDate),
-      phases: ordered.map(ph => {
-        const h = hoursOf.get(ph.id);
-        const done = h ? h.timesheetHours + h.punchHours : 0;
-        return {
-          id: String(ph.id),
-          name: ph.parentId == null ? ph.name : `› ${ph.name}`,
-          status: ph.status,
-          progress: h && h.budgetHours > 0 ? Math.round((done / h.budgetHours) * 100) : null,
-        };
-      }),
+      phases: res.phases.filter(ph => ph.parentId == null).map(toPhase),
+      devices: res.devices.map(({ zoneId, ...d }) => ({
+        ...d,
+        id: String(d.id),
+        zone: zoneId != null ? (zoneOf.get(zoneId) ?? null) : null,
+      })),
     };
   },
-};
 
-/** Le portail n'a pas de tâches distinctes des phases : rien à lister ici. */
-export const projectTasks = {
-  listByProject: async (_projectId: string): Promise<ProjectTask[]> => [],
+  /** Avancement d'une phase depuis le chantier (projects.fieldSetPhaseStatus). */
+  setPhaseStatus: (phaseId: string, status: PhaseStatus): Promise<{ success: boolean }> =>
+    trpc.projects.fieldSetPhaseStatus.mutate({ id: Number(phaseId), status }),
+
+  /** Relevé terrain d'un appareil (projects.fieldUpdateDevice). */
+  updateDevice: ({ id, ...rest }: FieldDeviceInput): Promise<{ success: boolean }> =>
+    trpc.projects.fieldUpdateDevice.mutate({ id: Number(id), ...rest }),
 };
 
 /* ------------------------------ work orders -------------------------------- */
@@ -267,6 +290,15 @@ export const workOrders = {
   },
 
   /** Notes de travail : actionsTaken (installDescription pour un bon d'installation). */
+  /** Création (admin/manager, permission work_orders.create). Textes riches → HTML. */
+  create: (input: CreateWorkOrderInput): Promise<CreateWorkOrderResult> =>
+    trpc.workOrders.create.mutate({
+      ...input,
+      problemDescription: input.problemDescription ? textToHtml(input.problemDescription) : input.problemDescription,
+      actionsTaken: input.actionsTaken ? textToHtml(input.actionsTaken) : input.actionsTaken,
+      followUp: input.followUp ? textToHtml(input.followUp) : input.followUp,
+    }),
+
   saveNotes: (id: string, docType: string | null, text: string): Promise<{ success: boolean }> =>
     trpc.workOrders.update.mutate({
       id: Number(id),
@@ -501,4 +533,38 @@ export const approvals = {
     trpc.timesheet.approve.mutate({ ids: ids.map(Number) }),
   reject: (id: string, reason: string): Promise<{ success: boolean }> =>
     trpc.timesheet.reject.mutate({ id: Number(id), reason }),
+};
+
+// ─── Repris de la branche iPad : clients, utilisateurs, types de service, Cédule ─
+
+function unwrapItems<T>(res: unknown): T[] {
+  if (Array.isArray(res)) return res as T[];
+  const items = (res as { items?: unknown })?.items;
+  return Array.isArray(items) ? (items as T[]) : [];
+}
+
+export const clients = {
+  /** clients.list → { items, total } ; 500 pour avoir tous les clients au sélecteur. */
+  list: async (input?: { search?: string; limit?: number }): Promise<ClientListItem[]> =>
+    unwrapItems<ClientListItem>(await trpc.clients.list.query({ limit: 500, ...(input ?? {}) })),
+};
+
+export const users = {
+  /** Requiert users.view (rôles élevés) : l'appelant dégrade si refusé. */
+  list: (): Promise<UserListItem[]> => trpc.users.list.query(),
+};
+
+export const serviceTypes = {
+  listActive: (): Promise<ServiceTypeItem[]> => trpc.serviceTypes.listActive.query(),
+};
+
+/** Cédule (server/routers/calendar.ts). */
+export const schedule = {
+  list: (input?: { startDate?: string; endDate?: string; userId?: number }): Promise<ScheduleItem[]> =>
+    trpc.calendar.list.query(input ?? {}),
+  create: (input: ScheduleInput): Promise<{ id: number }> => trpc.calendar.create.mutate(input),
+  /** Le portail attend { id, data }. */
+  update: (id: number, data: Partial<ScheduleInput>): Promise<{ success: boolean }> =>
+    trpc.calendar.update.mutate({ id, data }),
+  remove: (id: number): Promise<{ success: boolean }> => trpc.calendar.delete.mutate({ id }),
 };
