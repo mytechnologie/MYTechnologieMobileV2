@@ -5,7 +5,7 @@
  * route / sur place), ouverts d'un toucher.
  * Admin/manager : projets actifs, bons de travail du jour.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,7 +14,8 @@ import { Badge, Button, Card, SectionTitle } from '../../src/components/Primitiv
 import { Screen } from '../../src/components/Screen';
 import { useAuth } from '../../src/auth/AuthContext';
 import { canAccess, isElevated } from '../../src/auth/access';
-import { projects as projectsApi, timesheet, workOrders } from '../../src/api/endpoints';
+import { approvals, projects as projectsApi, timesheet, workOrders } from '../../src/api/endpoints';
+import { PunchCard } from '../../src/components/PunchCard';
 import { useQuery } from '../../src/api/useApi';
 import { formatHours } from '../../src/lib/time';
 import { formatDate, toISODate, workOrderStatusStyle } from '../../src/lib/format';
@@ -56,7 +57,11 @@ export default function HomeScreen() {
   const elevated = !!user && mode === 'token' && isElevated(user);
   const fieldUser = !!user && canAccess('work-orders', user, mode);
 
+  const [punchKey, setPunchKey] = useState(0);
   const entriesQ = useQuery(() => timesheet.myEntries(), []);
+  // Approbations : le portail refuse (FORBIDDEN) ceux qui n'ont aucun droit
+  // d'approbation ; la section reste alors cachée.
+  const approvalsQ = useQuery(() => approvals.queue().catch(() => null), []);
   const projectsQ = useQuery(
     () => (elevated ? projectsApi.list() : Promise.resolve([])),
     [elevated],
@@ -97,6 +102,8 @@ export default function HomeScreen() {
           !['complete', 'en_revision', 'a_facturer', 'facture', 'non_facture'].includes(w.status)),
     )
     .slice(0, 8);
+  const approvalGroups = approvalsQ.data ?? [];
+  const approvalHours = approvalGroups.reduce((sum, g) => sum + g.totalHours, 0);
   const activeProjects = (projectsQ.data ?? []).filter(
     (p) => p.status === 'en_cours' || p.status === 'preparation' || p.status === 'reception',
   ).length;
@@ -105,6 +112,8 @@ export default function HomeScreen() {
     entriesQ.refreshing || projectsQ.refreshing || workOrdersQ.refreshing;
   const onRefresh = () => {
     entriesQ.refetch();
+    approvalsQ.refetch();
+    setPunchKey((k) => k + 1);
     if (fieldUser) workOrdersQ.refetch();
     if (elevated) projectsQ.refetch();
   };
@@ -114,6 +123,25 @@ export default function HomeScreen() {
       <AppHeader />
 
       <View style={styles.body}>
+        <PunchCard refreshKey={punchKey} />
+
+        {approvalGroups.length > 0 ? (
+          <View style={styles.myBlock}>
+            <SectionTitle>À approuver</SectionTitle>
+            <Card style={styles.woCard} onPress={() => router.push('/(tabs)/timesheet/approvals')}>
+              <View style={styles.woTop}>
+                <Text style={styles.woTitle}>
+                  {approvalGroups.length} employé{approvalGroups.length > 1 ? 's' : ''}
+                </Text>
+                <Text style={styles.woNumber}>{formatHours(approvalHours)}</Text>
+              </View>
+              <Text style={styles.woMeta} numberOfLines={1}>
+                {approvalGroups.map((g) => g.userName).join(', ')}
+              </Text>
+            </Card>
+          </View>
+        ) : null}
+
         {fieldUser ? (
           <View style={styles.myBlock}>
             <SectionTitle>Mes bons aujourd'hui</SectionTitle>
