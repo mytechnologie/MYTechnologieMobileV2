@@ -54,12 +54,16 @@ export function timesheetStatusStyle(status: TimesheetStatus): StatusStyle {
 }
 
 const WORK_ORDER_LABELS: Record<string, StatusStyle> = {
-  pending: { label: 'En attente', color: colors.textMuted, bg: colors.surfaceAlt },
-  scheduled: { label: 'Planifié', color: colors.info, bg: colors.infoBg },
-  in_progress: { label: 'En cours', color: colors.warning, bg: colors.warningBg },
-  on_hold: { label: 'En pause', color: colors.warning, bg: colors.warningBg },
-  completed: { label: 'Terminé', color: colors.success, bg: colors.successBg },
-  cancelled: { label: 'Annulé', color: colors.danger, bg: colors.dangerBg },
+  nouveau: { label: 'Nouveau', color: colors.textMuted, bg: colors.surfaceAlt },
+  a_rappeler: { label: 'À rappeler', color: colors.warning, bg: colors.warningBg },
+  planifie: { label: 'Planifié', color: colors.info, bg: colors.infoBg },
+  en_route: { label: 'En route', color: colors.warning, bg: colors.warningBg },
+  en_cours: { label: 'Sur place', color: colors.warning, bg: colors.warningBg },
+  complete: { label: 'Complété', color: colors.success, bg: colors.successBg },
+  en_revision: { label: 'En révision', color: colors.info, bg: colors.infoBg },
+  a_facturer: { label: 'À facturer', color: colors.textMuted, bg: colors.surfaceAlt },
+  facture: { label: 'Facturé', color: colors.textMuted, bg: colors.surfaceAlt },
+  non_facture: { label: 'Non facturé', color: colors.textMuted, bg: colors.surfaceAlt },
 };
 
 export function workOrderStatusStyle(status: WorkOrderStatus): StatusStyle {
@@ -73,21 +77,21 @@ export function workOrderStatusStyle(status: WorkOrderStatus): StatusStyle {
 }
 
 /** Statuts de bon de travail proposés pour le changement (ordre logique). */
+/** Le parcours terrain ; le portail refuse une transition non permise au rôle. */
 export const WORK_ORDER_STATUS_OPTIONS: WorkOrderStatus[] = [
-  'pending',
-  'scheduled',
-  'in_progress',
-  'on_hold',
-  'completed',
-  'cancelled',
+  'planifie',
+  'en_route',
+  'en_cours',
+  'complete',
 ];
 
 const PROJECT_LABELS: Record<string, StatusStyle> = {
-  planning: { label: 'Planification', color: colors.info, bg: colors.infoBg },
-  active: { label: 'Actif', color: colors.success, bg: colors.successBg },
-  on_hold: { label: 'En pause', color: colors.warning, bg: colors.warningBg },
-  completed: { label: 'Terminé', color: colors.textMuted, bg: colors.surfaceAlt },
-  cancelled: { label: 'Annulé', color: colors.danger, bg: colors.dangerBg },
+  preparation: { label: 'Préparation', color: colors.info, bg: colors.infoBg },
+  en_cours: { label: 'En cours', color: colors.success, bg: colors.successBg },
+  en_pause: { label: 'En pause', color: colors.warning, bg: colors.warningBg },
+  reception: { label: 'Réception', color: colors.info, bg: colors.infoBg },
+  termine: { label: 'Terminé', color: colors.textMuted, bg: colors.surfaceAlt },
+  annule: { label: 'Annulé', color: colors.danger, bg: colors.dangerBg },
 };
 
 export function projectStatusStyle(status: ProjectStatus): StatusStyle {
@@ -101,6 +105,8 @@ export function projectStatusStyle(status: ProjectStatus): StatusStyle {
 }
 
 const TASK_LABELS: Record<string, StatusStyle> = {
+  a_venir: { label: 'À venir', color: colors.textMuted, bg: colors.surfaceAlt },
+  terminee: { label: 'Terminée', color: colors.success, bg: colors.successBg },
   todo: { label: 'À faire', color: colors.textMuted, bg: colors.surfaceAlt },
   in_progress: { label: 'En cours', color: colors.warning, bg: colors.warningBg },
   blocked: { label: 'Bloqué', color: colors.danger, bg: colors.dangerBg },

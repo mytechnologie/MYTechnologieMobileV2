@@ -41,64 +41,74 @@ export interface AuthUser {
 export interface Session {
   user: AuthUser;
   auth: SessionAuth;
-  /** Mode de connexion d'origine. */
-  mode: 'employee' | 'admin';
+  /** Session par jeton (auth.login + code SMS), la seule depuis la phase 0. */
+  mode: 'token';
   /** Expiration absolue (epoch ms). Portail = 8h. */
   expiresAt: number;
 }
 
 /* -------------------------------------------------------------------------- */
-/* portalAuth (OTP employé)                                                   */
+/* auth (connexion unique : courriel + mot de passe + code SMS)               */
 /* -------------------------------------------------------------------------- */
 
-export interface RequestOtpInput {
-  /** Téléphone au format E.164, ex. +15145551234. */
-  phone: string;
-}
-export interface RequestOtpResult {
-  success: boolean;
-  /** Certaines impls renvoient un délai d'expiration du code. */
-  expiresInSeconds?: number;
-}
-
-export interface VerifyOtpInput {
-  phone: string;
-  code: string;
-}
-/** Réponse brute attendue de verifyOtp. */
-export interface VerifyOtpResult {
-  /** Token de session portail → header x-portal-session. */
-  session: string;
-  user: AuthUser;
-  /** Durée de vie en secondes (8h par défaut côté portail). */
-  expiresInSeconds?: number;
-}
-
-/* -------------------------------------------------------------------------- */
-/* adminAuth (email + mot de passe)                                           */
-/* -------------------------------------------------------------------------- */
-
-export interface AdminLoginInput {
+export interface LoginInput {
   email: string;
   password: string;
 }
-export interface AdminLoginResult {
-  /** Token / JWT de session admin. */
+
+/** Réponse de auth.login (server/routers.ts, authRouter). */
+export type LoginResponse =
+  | {
+      success: true;
+      otpRequired: true;
+      challengeId: string;
+      expiresAt: string;
+      resendAvailableAt: string;
+      user: { id: number; email: string | null; role: string };
+    }
+  | {
+      success: true;
+      otpRequired?: undefined;
+      token: string;
+      mustChangePassword: boolean;
+      user: { id: number; name: string | null; email: string | null; role: string };
+    };
+
+export interface VerifyLoginOtpInput {
+  challengeId: string;
+  otpCode: string;
+}
+
+/** Réponse de auth.verifyLoginOtp. */
+export interface VerifyLoginOtpResponse {
+  success: true;
   token: string;
-  user: AuthUser;
-  expiresInSeconds?: number;
+  mustChangePassword: boolean;
+  user: { id: number; name: string | null; email: string | null; role: string };
+}
+
+/** Réponse de auth.me (null sans session valide). */
+export interface MeResponse {
+  id: number;
+  name: string | null;
+  email: string | null;
+  phone?: string | null;
+  role: string;
+  permissions: string[];
 }
 
 /* -------------------------------------------------------------------------- */
 /* Projets                                                                    */
 /* -------------------------------------------------------------------------- */
 
+/** shared/projets.ts PROJECT_STATUS_VALUES. */
 export type ProjectStatus =
-  | 'planning'
-  | 'active'
-  | 'on_hold'
-  | 'completed'
-  | 'cancelled'
+  | 'preparation'
+  | 'en_cours'
+  | 'en_pause'
+  | 'reception'
+  | 'termine'
+  | 'annule'
   | (string & {});
 
 export interface ProjectListItem {
@@ -151,13 +161,18 @@ export interface ProjectTask {
 /* Bons de travail                                                            */
 /* -------------------------------------------------------------------------- */
 
+/** shared/workOrderStatus.ts WORK_ORDER_STATUSES. */
 export type WorkOrderStatus =
-  | 'pending'
-  | 'scheduled'
-  | 'in_progress'
-  | 'on_hold'
-  | 'completed'
-  | 'cancelled'
+  | 'nouveau'
+  | 'a_rappeler'
+  | 'planifie'
+  | 'en_route'
+  | 'en_cours'
+  | 'complete'
+  | 'en_revision'
+  | 'a_facturer'
+  | 'facture'
+  | 'non_facture'
   | (string & {});
 
 export interface WorkOrderPhoto {
@@ -178,17 +193,18 @@ export interface WorkOrderListItem {
 }
 
 export interface WorkOrderDetail extends WorkOrderListItem {
+  /** Problème signalé, en texte simple. */
   description?: string | null;
-  equipment?: string | null;
-  contactName?: string | null;
-  contactPhone?: string | null;
-  photos?: WorkOrderPhoto[];
+  clientId: string;
+  /** 'appel_service' | 'bon_installation' … (shared/ du portail). */
+  docType: string | null;
+  /** Notes de travail du technicien, en texte simple. */
+  workNotes: string;
 }
 
 export interface ChangeWorkOrderStatusInput {
   id: string;
   status: WorkOrderStatus;
-  note?: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -202,30 +218,71 @@ export type TimesheetStatus =
   | 'rejected'
   | (string & {});
 
+/** Ligne brute de timesheet.myEntries (table time_entries). */
+export interface TimeEntryRow {
+  id: number;
+  entryDate: Date | string;
+  mode: 'hours' | 'range';
+  startTime: string | null;
+  endTime: string | null;
+  breakMinutes: number | null;
+  hoursWorked: number | null;
+  computedHours: number;
+  linkType: 'project' | 'investigation' | null;
+  projectId: number | null;
+  projectPhaseId: number | null;
+  investigationId: number | null;
+  notes: string | null;
+  status: TimesheetStatus;
+  rejectedReason?: string | null;
+}
+
+/** Projet ouvert + phases saisissables (timesheet.projectOptions). */
+export interface ProjectOption {
+  id: number;
+  code: string | null;
+  name: string;
+  clientName: string | null;
+  phases: { id: number; name: string; status: string }[];
+}
+
+/** Dossier d'enquête (timesheet.investigationOptions). */
+export interface InvestigationOption {
+  id: number;
+  ticketNumber: string | null;
+  clientName: string | null;
+}
+
+/** Rattachement d'une saisie : rien, un projet (+ phase) ou une enquête. */
+export type TimesheetLink =
+  | { linkType: null }
+  | { linkType: 'project'; projectId: number; projectPhaseId: number | null }
+  | { linkType: 'investigation'; investigationId: number };
+
+/** Saisie d'heures normalisée pour l'affichage. */
 export interface TimesheetEntry {
   id: string;
   /** Date ISO (YYYY-MM-DD). */
   date: string;
-  projectId?: string | null;
-  projectName?: string | null;
-  workOrderId?: string | null;
-  workOrderNumber?: string | null;
+  link: TimesheetLink;
+  /** Libellé lisible du rattachement (projet › phase, ou enquête). */
+  linkLabel: string | null;
   /** Heure de début 'HH:mm'. */
   startTime: string;
   /** Heure de fin 'HH:mm'. */
   endTime: string;
   /** Pause en minutes. */
   breakMinutes: number;
-  /** Total calculé en heures décimales. */
+  /** Total calculé par le serveur, en heures décimales. */
   totalHours: number;
   notes?: string | null;
   status: TimesheetStatus;
+  rejectedReason?: string | null;
 }
 
 export interface CreateTimesheetEntryInput {
   date: string;
-  projectId?: string | null;
-  workOrderId?: string | null;
+  link: TimesheetLink;
   startTime: string;
   endTime: string;
   breakMinutes: number;

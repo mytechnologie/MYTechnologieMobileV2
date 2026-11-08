@@ -1,6 +1,7 @@
 /**
- * Sélecteur recherché de projet OU bon de travail à rattacher à une saisie d'heures.
- * Charge les listes accessibles ; dégrade proprement si l'API les refuse (employé).
+ * Sélecteur de rattachement d'une saisie d'heures : projet (puis phase) OU
+ * dossier d'enquête, comme sur le portail web. Les listes viennent de
+ * timesheet.projectOptions / investigationOptions (session portail employé).
  */
 import { useMemo, useState } from 'react';
 import {
@@ -13,21 +14,21 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { projects as projectsApi, workOrders } from '../api/endpoints';
+import { timesheet } from '../api/endpoints';
 import { useQuery } from '../api/useApi';
+import type { ProjectOption, TimesheetLink } from '../api/types';
 import { colors, radius, spacing, typography } from '../theme';
 
-export type LinkSelection =
-  | { kind: 'none' }
-  | { kind: 'project'; id: string; label: string }
-  | { kind: 'workOrder'; id: string; label: string };
-
-interface Option {
-  kind: 'project' | 'workOrder';
-  id: string;
-  label: string;
-  sublabel: string;
+export interface LinkSelection {
+  link: TimesheetLink;
+  label: string | null;
 }
+
+export const NO_LINK: LinkSelection = { link: { linkType: null }, label: null };
+
+type Option =
+  | { kind: 'project'; key: string; label: string; sublabel: string; project: ProjectOption }
+  | { kind: 'investigation'; key: string; label: string; sublabel: string; id: number };
 
 export function ReferencePicker({
   value,
@@ -38,64 +39,83 @@ export function ReferencePicker({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  /** Projet choisi dont on attend la phase. */
+  const [pendingProject, setPendingProject] = useState<ProjectOption | null>(null);
 
-  const projectsQ = useQuery(
-    () => projectsApi.list().catch(() => []),
-    [],
-  );
-  const workOrdersQ = useQuery(
-    () => workOrders.list().catch(() => []),
+  const projectsQ = useQuery(() => timesheet.projectOptions().catch(() => []), []);
+  const investigationsQ = useQuery(
+    () => timesheet.investigationOptions().catch(() => []),
     [],
   );
 
   const options = useMemo<Option[]>(() => {
-    const p: Option[] = (projectsQ.data ?? []).map((x) => ({
+    const p: Option[] = (projectsQ.data ?? []).map(x => ({
       kind: 'project',
-      id: x.id,
-      label: x.name,
-      sublabel: x.client ?? 'Projet',
+      key: `p:${x.id}`,
+      label: x.code ? `${x.code} — ${x.name}` : x.name,
+      sublabel: x.clientName ?? 'Projet',
+      project: x,
     }));
-    const w: Option[] = (workOrdersQ.data ?? []).map((x) => ({
-      kind: 'workOrder',
+    const i: Option[] = (investigationsQ.data ?? []).map(x => ({
+      kind: 'investigation',
+      key: `i:${x.id}`,
+      label: x.ticketNumber ? `Enquête ${x.ticketNumber}` : `Enquête #${x.id}`,
+      sublabel: x.clientName ?? 'Enquête',
       id: x.id,
-      label: `#${x.number} — ${x.title}`,
-      sublabel: x.client ?? 'Bon de travail',
     }));
-    return [...p, ...w];
-  }, [projectsQ.data, workOrdersQ.data]);
+    return [...p, ...i];
+  }, [projectsQ.data, investigationsQ.data]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return options;
     return options.filter(
-      (o) =>
-        o.label.toLowerCase().includes(q) || o.sublabel.toLowerCase().includes(q),
+      o => o.label.toLowerCase().includes(q) || o.sublabel.toLowerCase().includes(q),
     );
   }, [options, search]);
 
-  const display =
-    value.kind === 'none' ? 'Aucun (facultatif)' : value.label;
-
-  const select = (o: Option) => {
-    onChange({ kind: o.kind, id: o.id, label: o.label });
+  const close = () => {
     setOpen(false);
     setSearch('');
+    setPendingProject(null);
   };
+
+  const select = (o: Option) => {
+    if (o.kind === 'investigation') {
+      onChange({ link: { linkType: 'investigation', investigationId: o.id }, label: o.label });
+      close();
+      return;
+    }
+    // Projet avec phases : la phase est demandée, comme sur le portail web.
+    if (o.project.phases.length > 0) {
+      setPendingProject(o.project);
+      return;
+    }
+    onChange({
+      link: { linkType: 'project', projectId: o.project.id, projectPhaseId: null },
+      label: o.project.name,
+    });
+    close();
+  };
+
+  const selectPhase = (project: ProjectOption, phase: { id: number; name: string }) => {
+    onChange({
+      link: { linkType: 'project', projectId: project.id, projectPhaseId: phase.id },
+      label: `${project.name} › ${phase.name}`,
+    });
+    close();
+  };
+
+  const display = value.label ?? 'Aucun (facultatif)';
+  const loading = projectsQ.loading || investigationsQ.loading;
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.label}>Projet / bon de travail</Text>
-      <Pressable
-        style={styles.selector}
-        onPress={() => setOpen(true)}
-        accessibilityRole="button"
-      >
+      <Text style={styles.label}>Projet / enquête</Text>
+      <Pressable style={styles.selector} onPress={() => setOpen(true)} accessibilityRole="button">
         <Ionicons name="link-outline" size={18} color={colors.textMuted} />
         <Text
-          style={[
-            styles.selectorText,
-            value.kind === 'none' && styles.placeholder,
-          ]}
+          style={[styles.selectorText, value.link.linkType === null && styles.placeholder]}
           numberOfLines={1}
         >
           {display}
@@ -103,69 +123,97 @@ export function ReferencePicker({
         <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
       </Pressable>
 
-      <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
+      <Modal visible={open} animationType="slide" onRequestClose={close}>
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Rattacher</Text>
-            <Pressable onPress={() => setOpen(false)} hitSlop={8}>
+            {pendingProject ? (
+              <Pressable onPress={() => setPendingProject(null)} hitSlop={8}>
+                <Ionicons name="chevron-back" size={26} color={colors.text} />
+              </Pressable>
+            ) : null}
+            <Text style={styles.modalTitle} numberOfLines={1}>
+              {pendingProject ? 'Choisir la phase' : 'Rattacher'}
+            </Text>
+            <Pressable onPress={close} hitSlop={8}>
               <Ionicons name="close" size={26} color={colors.text} />
             </Pressable>
           </View>
 
-          <View style={styles.searchRow}>
-            <Ionicons name="search" size={18} color={colors.textMuted} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Rechercher un projet ou un bon…"
-              placeholderTextColor={colors.disabled}
-              value={search}
-              onChangeText={setSearch}
-              autoCorrect={false}
+          {pendingProject ? (
+            <FlatList
+              data={pendingProject.phases}
+              keyExtractor={ph => String(ph.id)}
+              ListHeaderComponent={<Text style={styles.phaseProject}>{pendingProject.name}</Text>}
+              renderItem={({ item }) => (
+                <Pressable style={styles.optionRow} onPress={() => selectPhase(pendingProject, item)}>
+                  <Ionicons name="git-branch-outline" size={20} color={colors.navy} />
+                  <Text style={[styles.optionLabel, styles.optionTextWrap]} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                </Pressable>
+              )}
+              contentContainerStyle={styles.listContent}
             />
-          </View>
-
-          <FlatList
-            data={filtered}
-            keyExtractor={(o) => `${o.kind}:${o.id}`}
-            ListHeaderComponent={
-              <Pressable
-                style={styles.optionRow}
-                onPress={() => {
-                  onChange({ kind: 'none' });
-                  setOpen(false);
-                  setSearch('');
-                }}
-              >
-                <Ionicons name="remove-circle-outline" size={20} color={colors.textMuted} />
-                <Text style={styles.optionLabel}>Aucun (facultatif)</Text>
-              </Pressable>
-            }
-            renderItem={({ item }) => (
-              <Pressable style={styles.optionRow} onPress={() => select(item)}>
-                <Ionicons
-                  name={item.kind === 'project' ? 'briefcase-outline' : 'construct-outline'}
-                  size={20}
-                  color={colors.navy}
+          ) : (
+            <>
+              <View style={styles.searchRow}>
+                <Ionicons name="search" size={18} color={colors.textMuted} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Rechercher un projet, un client, une enquête…"
+                  placeholderTextColor={colors.disabled}
+                  value={search}
+                  onChangeText={setSearch}
+                  autoCorrect={false}
                 />
-                <View style={styles.optionTextWrap}>
-                  <Text style={styles.optionLabel} numberOfLines={1}>
-                    {item.label}
+              </View>
+
+              <FlatList
+                data={filtered}
+                keyExtractor={o => o.key}
+                ListHeaderComponent={
+                  <Pressable
+                    style={styles.optionRow}
+                    onPress={() => {
+                      onChange(NO_LINK);
+                      close();
+                    }}
+                  >
+                    <Ionicons name="remove-circle-outline" size={20} color={colors.textMuted} />
+                    <Text style={styles.optionLabel}>Aucun (facultatif)</Text>
+                  </Pressable>
+                }
+                renderItem={({ item }) => (
+                  <Pressable style={styles.optionRow} onPress={() => select(item)}>
+                    <Ionicons
+                      name={item.kind === 'project' ? 'briefcase-outline' : 'search-outline'}
+                      size={20}
+                      color={colors.navy}
+                    />
+                    <View style={styles.optionTextWrap}>
+                      <Text style={styles.optionLabel} numberOfLines={1}>
+                        {item.label}
+                      </Text>
+                      <Text style={styles.optionSub} numberOfLines={1}>
+                        {item.sublabel}
+                      </Text>
+                    </View>
+                    {item.kind === 'project' && item.project.phases.length > 0 ? (
+                      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                    ) : null}
+                  </Pressable>
+                )}
+                ListEmptyComponent={
+                  <Text style={styles.empty}>
+                    {loading
+                      ? 'Chargement…'
+                      : 'Aucun élément disponible. Vous pouvez laisser ce champ vide.'}
                   </Text>
-                  <Text style={styles.optionSub} numberOfLines={1}>
-                    {item.sublabel}
-                  </Text>
-                </View>
-              </Pressable>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.empty}>
-                {projectsQ.loading || workOrdersQ.loading
-                  ? 'Chargement…'
-                  : 'Aucun élément disponible. Vous pouvez laisser ce champ vide.'}
-              </Text>
-            }
-            contentContainerStyle={styles.listContent}
-          />
+                }
+                contentContainerStyle={styles.listContent}
+              />
+            </>
+          )}
         </View>
       </Modal>
     </View>
@@ -202,7 +250,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
   },
+  phaseProject: {
+    fontSize: typography.small,
+    color: colors.textMuted,
+    marginBottom: spacing.sm,
+  },
   modalTitle: {
+    flex: 1,
+    marginHorizontal: spacing.sm,
     fontSize: typography.h2,
     fontWeight: typography.weightBold,
     color: colors.text,

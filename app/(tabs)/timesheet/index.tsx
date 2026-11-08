@@ -23,9 +23,7 @@ function EntryRow({
   onPress?: () => void;
 }) {
   const s = timesheetStatusStyle(entry.status);
-  const linked =
-    entry.projectName ??
-    (entry.workOrderNumber ? `Bon #${entry.workOrderNumber}` : null);
+  const linked = entry.linkLabel;
   const editable = entry.status === 'draft';
 
   return (
@@ -48,6 +46,9 @@ function EntryRow({
             {linked}
           </Text>
         </View>
+      ) : null}
+      {entry.status === 'rejected' && entry.rejectedReason ? (
+        <Text style={styles.rejected}>Refusée : {entry.rejectedReason}</Text>
       ) : null}
       {editable ? (
         <View style={styles.editHint}>
@@ -167,6 +168,7 @@ const styles = StyleSheet.create({
   times: { fontSize: typography.small, color: colors.textMuted },
   metaLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   meta: { fontSize: typography.small, color: colors.textMuted, flex: 1 },
+  rejected: { fontSize: typography.small, color: colors.danger },
   editHint: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   editHintText: { fontSize: typography.tiny, color: colors.navy },
   footer: {

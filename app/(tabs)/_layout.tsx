@@ -9,11 +9,11 @@ import { canAccess } from '../../src/auth/access';
 import { colors, typography } from '../../src/theme';
 
 export default function TabsLayout() {
-  const { user } = useAuth();
+  const { user, mode } = useAuth();
 
   // Sans utilisateur (transition de déconnexion), la garde racine redirige.
-  const showProjects = !!user && canAccess('projects', user);
-  const showWorkOrders = !!user && canAccess('work-orders', user);
+  const showProjects = !!user && canAccess('projects', user, mode);
+  const showWorkOrders = !!user && canAccess('work-orders', user, mode);
 
   return (
     <Tabs

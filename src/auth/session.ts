@@ -5,7 +5,8 @@
 import * as SecureStore from 'expo-secure-store';
 import type { Session, SessionAuth } from '../api/types';
 
-const SESSION_KEY = 'mytech.session.v1';
+// v2 : session par jeton. Une session v1 (code SMS portail) n'est pas reprise.
+const SESSION_KEY = 'mytech.session.v2';
 
 /** Header actif lu par le client tRPC (mis à jour à chaque login/logout). */
 let activeAuth: SessionAuth | null = null;
@@ -29,7 +30,7 @@ export async function loadSession(): Promise<Session | null> {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Session;
-    if (!parsed?.auth || !parsed?.user) return null;
+    if (!parsed?.auth || !parsed?.user || parsed.mode !== 'token') return null;
     // Session expirée → on ne la restaure pas.
     if (typeof parsed.expiresAt === 'number' && parsed.expiresAt <= Date.now()) {
       await clearSession();

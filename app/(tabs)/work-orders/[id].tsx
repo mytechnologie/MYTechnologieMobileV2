@@ -1,43 +1,96 @@
 /**
- * Détail d'un bon de travail : infos, équipement, photos, changement de statut.
+ * Bon de travail sur place (maquette écran 3) : étapes du parcours terrain,
+ * appeler / itinéraire, problème signalé, photos, notes de travail et fin du
+ * bon avec la signature du client.
  */
-import { useLocalSearchParams, useNavigation } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  Badge,
-  Card,
-  InfoRow,
-  SectionTitle,
-} from '../../../src/components/Primitives';
+  Alert,
+  Image,
+  Linking,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
+import { Badge, Button, Card } from '../../../src/components/Primitives';
 import { Screen } from '../../../src/components/Screen';
 import { ErrorState, LoadingState } from '../../../src/components/States';
-import { workOrders } from '../../../src/api/endpoints';
+import { SIGNATURE_CAPTION, workOrders } from '../../../src/api/endpoints';
 import { useMutation, useQuery } from '../../../src/api/useApi';
-import {
-  WORK_ORDER_STATUS_OPTIONS,
-  formatDate,
-  workOrderStatusStyle,
-} from '../../../src/lib/format';
+import { formatDate, workOrderStatusStyle } from '../../../src/lib/format';
 import type { WorkOrderStatus } from '../../../src/api/types';
 import { colors, radius, spacing, typography } from '../../../src/theme';
+
+/** Parcours terrain affiché en étapes. */
+const STEPS: { status: WorkOrderStatus; label: string }[] = [
+  { status: 'en_route', label: 'En route' },
+  { status: 'en_cours', label: 'Sur place' },
+  { status: 'complete', label: 'Terminé' },
+];
+
+/** Prochaine étape proposée selon le statut actuel (null : rien à faire ici). */
+function nextStep(status: string): { status: WorkOrderStatus; label: string } | null {
+  if (status === 'nouveau' || status === 'a_rappeler' || status === 'planifie') {
+    return { status: 'en_route', label: 'Je pars (en route)' };
+  }
+  if (status === 'en_route') return { status: 'en_cours', label: 'Je suis arrivé (sur place)' };
+  return null;
+}
+
+function stepIndex(status: string): number {
+  if (status === 'en_route') return 0;
+  if (status === 'en_cours') return 1;
+  if (['complete', 'en_revision', 'a_facturer', 'facture', 'non_facture'].includes(status)) return 2;
+  return -1;
+}
+
+function openPhone(phone: string) {
+  void Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`);
+}
+
+function openMaps(address: string) {
+  const q = encodeURIComponent(address);
+  const url = Platform.OS === 'ios' ? `http://maps.apple.com/?daddr=${q}` : `geo:0,0?q=${q}`;
+  void Linking.openURL(url);
+}
 
 export default function WorkOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
+  const router = useRouter();
   const workOrderId = String(id);
 
   const woQ = useQuery(() => workOrders.getById(workOrderId), [workOrderId]);
+  const clientId = woQ.data?.clientId ?? null;
+  const clientQ = useQuery(
+    () => (clientId ? workOrders.client(clientId).catch(() => null) : Promise.resolve(null)),
+    [clientId],
+  );
+  const photosQ = useQuery(() => workOrders.photos(workOrderId).catch(() => []), [workOrderId]);
   const changeStatus = useMutation(workOrders.changeStatus);
 
+  const [notes, setNotes] = useState<string | null>(null);
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
   useEffect(() => {
-    if (woQ.data?.number) {
-      navigation.setOptions({ title: `Bon #${woQ.data.number}` });
-    }
+    if (woQ.data?.number) navigation.setOptions({ title: woQ.data.number });
   }, [navigation, woQ.data?.number]);
 
-  const [pendingStatus, setPendingStatus] = useState<WorkOrderStatus | null>(null);
+  // Retour de l'écran de signature : statut et photos à jour.
+  useFocusEffect(
+    useCallback(() => {
+      woQ.refetch();
+      photosQ.refetch();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
 
   if (woQ.loading) return <LoadingState label="Chargement du bon…" />;
   if (woQ.error || !woQ.data) {
@@ -45,154 +98,217 @@ export default function WorkOrderDetailScreen() {
   }
 
   const wo = woQ.data;
-  const status = workOrderStatusStyle(wo.status);
+  const badge = workOrderStatusStyle(wo.status);
+  const current = stepIndex(wo.status);
+  const next = nextStep(wo.status);
+  const canFinish = wo.status === 'en_cours';
+  const client = clientQ.data;
+  const phone = client?.contactPhone || client?.phone || null;
+  const address = wo.address || client?.address || null;
+  const photos = (photosQ.data ?? []).filter(p => p.caption !== SIGNATURE_CAPTION);
+  const signed = (photosQ.data ?? []).some(p => p.caption === SIGNATURE_CAPTION);
+  const notesValue = notes ?? wo.workNotes;
+  const notesDirty = notes !== null && notes !== wo.workNotes;
 
-  const applyStatus = (next: WorkOrderStatus) => {
-    if (next === wo.status) return;
-    Alert.alert(
-      'Changer le statut',
-      `Passer le bon au statut « ${workOrderStatusStyle(next).label} » ?`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Confirmer',
-          onPress: async () => {
-            setPendingStatus(next);
-            try {
-              await changeStatus.mutate({ id: workOrderId, status: next });
-              woQ.refetch();
-            } catch (e) {
-              Alert.alert(
-                'Erreur',
-                e instanceof Error ? e.message : 'Changement de statut impossible.',
-              );
-            } finally {
-              setPendingStatus(null);
-            }
-          },
-        },
-      ],
-    );
+  const advance = async (to: WorkOrderStatus) => {
+    try {
+      await changeStatus.mutate({ id: workOrderId, status: to });
+      woQ.refetch();
+    } catch (e) {
+      Alert.alert('Statut', e instanceof Error ? e.message : 'Changement de statut impossible.');
+    }
   };
 
-  const photos = wo.photos ?? [];
+  const saveNotes = async () => {
+    setSavingNotes(true);
+    try {
+      await workOrders.saveNotes(workOrderId, wo.docType, notesValue);
+      setNotes(null);
+      woQ.refetch();
+    } catch (e) {
+      Alert.alert('Notes', e instanceof Error ? e.message : 'Enregistrement impossible.');
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
+  const takePhoto = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Appareil photo', "Autorisez l'appareil photo dans les réglages du téléphone.");
+      return;
+    }
+    const shot = await ImagePicker.launchCameraAsync({ quality: 0.6 });
+    const asset = shot.canceled ? null : shot.assets[0];
+    if (!asset) return;
+    setUploading(true);
+    try {
+      await workOrders.addPhoto(workOrderId, asset.uri);
+      photosQ.refetch();
+    } catch (e) {
+      Alert.alert('Photo', e instanceof Error ? e.message : 'Envoi impossible.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const finish = async () => {
+    // Les notes non enregistrées partent avant la signature.
+    if (notesDirty) await saveNotes();
+    router.push({ pathname: '/(tabs)/work-orders/signature', params: { id: workOrderId } });
+  };
 
   return (
-    <Screen scroll refreshing={woQ.refreshing} onRefresh={woQ.refetch}>
-      <Card style={styles.headerCard}>
-        <View style={styles.headerTop}>
-          <Text style={styles.title}>{wo.title}</Text>
-          <Badge label={status.label} color={status.color} bg={status.bg} />
-        </View>
-        <Text style={styles.number}>#{wo.number}</Text>
-        {wo.description ? <Text style={styles.desc}>{wo.description}</Text> : null}
-      </Card>
-
-      <SectionTitle>Informations</SectionTitle>
+    <Screen scroll refreshing={woQ.refreshing} onRefresh={() => { woQ.refetch(); photosQ.refetch(); }}>
       <Card style={styles.block}>
-        {wo.client ? <InfoRow label="Client" value={wo.client} /> : null}
-        {wo.address ? <InfoRow label="Adresse" value={wo.address} /> : null}
-        {wo.scheduledDate ? (
-          <InfoRow label="Planifié" value={formatDate(wo.scheduledDate)} />
-        ) : null}
-        {wo.equipment ? <InfoRow label="Équipement" value={wo.equipment} /> : null}
-        {wo.contactName ? <InfoRow label="Contact" value={wo.contactName} /> : null}
-        {wo.contactPhone ? <InfoRow label="Téléphone" value={wo.contactPhone} /> : null}
-      </Card>
-
-      {/* Photos */}
-      <SectionTitle>Photos</SectionTitle>
-      {photos.length === 0 ? (
-        <Card style={styles.block}>
-          <Text style={styles.muted}>Aucune photo.</Text>
-        </Card>
-      ) : (
-        <View style={styles.photoGrid}>
-          {photos.map((p) => (
-            <Image key={p.id} source={{ uri: p.url }} style={styles.photo} />
-          ))}
+        <View style={styles.rowBetween}>
+          <Text style={styles.kicker}>{wo.client ?? client?.name ?? 'Client'}</Text>
+          <Badge label={badge.label} color={badge.color} bg={badge.bg} />
         </View>
-      )}
+        <Text style={styles.title}>{wo.title}</Text>
+        {wo.scheduledDate ? <Text style={styles.meta}>Prévu le {formatDate(wo.scheduledDate)}</Text> : null}
 
-      {/* Changement de statut */}
-      <SectionTitle>Changer le statut</SectionTitle>
-      <View style={styles.statusGrid}>
-        {WORK_ORDER_STATUS_OPTIONS.map((opt) => {
-          const s = workOrderStatusStyle(opt);
-          const active = opt === wo.status;
-          const busy = pendingStatus === opt;
-          return (
-            <Pressable
-              key={opt}
-              disabled={changeStatus.loading || active}
-              onPress={() => applyStatus(opt)}
-              style={({ pressed }) => [
-                styles.statusChip,
-                { borderColor: active ? s.color : colors.border },
-                active && { backgroundColor: s.bg },
-                pressed && styles.pressed,
-                changeStatus.loading && !busy && styles.dim,
-              ]}
-            >
-              <Text
+        <View style={styles.steps}>
+          {STEPS.map((s, i) => (
+            <View key={s.status} style={styles.step}>
+              <View
                 style={[
-                  styles.statusChipText,
-                  { color: active ? s.color : colors.text },
+                  styles.dot,
+                  i < current && styles.dotDone,
+                  i === current && (i === 2 ? styles.dotDone : styles.dotCurrent),
                 ]}
               >
-                {busy ? '…' : s.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+                {i < current || (i === 2 && current === 2) ? (
+                  <Ionicons name="checkmark" size={16} color={colors.textOnNavy} />
+                ) : null}
+              </View>
+              <Text style={[styles.stepLabel, i === current && styles.stepLabelCurrent]}>{s.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        {next ? (
+          <Button
+            title={next.label}
+            variant="primary"
+            loading={changeStatus.loading}
+            onPress={() => advance(next.status)}
+          />
+        ) : null}
+      </Card>
+
+      <Card style={styles.block}>
+        {client?.contactName ? <Text style={styles.body}>Contact : {client.contactName}</Text> : null}
+        {address ? <Text style={styles.body}>{address}</Text> : null}
+        <View style={styles.actions}>
+          <Button
+            title="Appeler"
+            variant="secondary"
+            fullWidth={false}
+            style={styles.action}
+            onPress={() => (phone ? openPhone(phone) : Alert.alert('Appeler', 'Aucun numéro au dossier du client.'))}
+          />
+          <Button
+            title="Itinéraire"
+            variant="secondary"
+            fullWidth={false}
+            style={styles.action}
+            onPress={() => (address ? openMaps(address) : Alert.alert('Itinéraire', 'Aucune adresse au bon.'))}
+          />
+        </View>
+      </Card>
+
+      {wo.description ? (
+        <Card style={styles.block}>
+          <Text style={styles.section}>PROBLÈME SIGNALÉ</Text>
+          <Text style={styles.body}>{wo.description}</Text>
+        </Card>
+      ) : null}
+
+      <Card style={styles.block}>
+        <Text style={styles.section}>PHOTOS ({photos.length})</Text>
+        <View style={styles.grid}>
+          {photos.map(p => (
+            <Image key={p.id} source={{ uri: p.url }} style={styles.thumb} accessibilityLabel={p.caption ?? 'Photo du bon'} />
+          ))}
+          <Pressable
+            style={[styles.thumb, styles.addThumb]}
+            onPress={takePhoto}
+            disabled={uploading}
+            accessibilityRole="button"
+            accessibilityLabel="Prendre une photo"
+          >
+            <Ionicons name={uploading ? 'cloud-upload-outline' : 'camera-outline'} size={26} color={colors.navy} />
+          </Pressable>
+        </View>
+      </Card>
+
+      <Card style={styles.block}>
+        <Text style={styles.section}>NOTES DE TRAVAIL</Text>
+        <TextInput
+          style={styles.notes}
+          multiline
+          placeholder="Ce qui a été fait, pièces remplacées…"
+          placeholderTextColor={colors.disabled}
+          value={notesValue}
+          onChangeText={setNotes}
+        />
+        {notesDirty ? (
+          <Button title="Enregistrer les notes" variant="secondary" loading={savingNotes} onPress={saveNotes} />
+        ) : null}
+      </Card>
+
+      {canFinish ? (
+        <Button title="Terminer · signature du client" variant="gold" onPress={finish} style={styles.finish} />
+      ) : null}
+      {signed ? <Text style={styles.signed}>Signature du client enregistrée.</Text> : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  headerCard: { marginBottom: spacing.lg, gap: spacing.xs },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  block: { marginBottom: spacing.md, gap: spacing.sm },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  kicker: { fontSize: typography.small, color: colors.textMuted, fontWeight: typography.weightSemibold, flex: 1 },
+  title: { fontSize: typography.h3, fontWeight: typography.weightBold, color: colors.text },
+  meta: { fontSize: typography.small, color: colors.textMuted },
+  steps: { flexDirection: 'row', justifyContent: 'space-between', marginVertical: spacing.sm },
+  step: { flex: 1, alignItems: 'center', gap: spacing.xs },
+  dot: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.border,
     alignItems: 'center',
-    gap: spacing.sm,
+    justifyContent: 'center',
   },
-  title: {
-    flex: 1,
-    fontSize: typography.h2,
-    fontWeight: typography.weightBold,
-    color: colors.text,
+  dotDone: { backgroundColor: colors.success },
+  dotCurrent: { backgroundColor: colors.gold },
+  stepLabel: { fontSize: typography.tiny, color: colors.textMuted },
+  stepLabelCurrent: { color: colors.text, fontWeight: typography.weightBold },
+  actions: { flexDirection: 'row', gap: spacing.sm },
+  action: { flex: 1 },
+  section: { fontSize: typography.tiny, fontWeight: typography.weightBold, color: colors.textMuted },
+  body: { fontSize: typography.body, color: colors.text, lineHeight: 22 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  thumb: { width: 72, height: 72, borderRadius: radius.md, backgroundColor: colors.surfaceAlt },
+  addThumb: {
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  number: {
-    fontSize: typography.small,
-    fontWeight: typography.weightSemibold,
-    color: colors.navy,
-  },
-  desc: { fontSize: typography.small, color: colors.text, lineHeight: 20, marginTop: spacing.xs },
-  block: { marginBottom: spacing.lg },
-  muted: { fontSize: typography.small, color: colors.textMuted },
-  photoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  photo: {
-    width: 104,
-    height: 104,
+  notes: {
+    minHeight: 96,
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: radius.md,
-    backgroundColor: colors.surfaceAlt,
+    padding: spacing.md,
+    fontSize: typography.body,
+    color: colors.text,
+    textAlignVertical: 'top',
   },
-  statusGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  statusChip: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radius.pill,
-    borderWidth: 1.5,
-    backgroundColor: colors.surface,
-  },
-  statusChipText: { fontSize: typography.small, fontWeight: typography.weightSemibold },
-  pressed: { opacity: 0.7 },
-  dim: { opacity: 0.5 },
+  finish: { marginTop: spacing.sm, marginBottom: spacing.md },
+  signed: { textAlign: 'center', color: colors.success, fontSize: typography.small, marginBottom: spacing.lg },
 });

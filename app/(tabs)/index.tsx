@@ -1,6 +1,8 @@
 /**
  * Accueil — dashboard adapté au rôle.
  * Employé : résumé d'heures + bouton « Saisir des heures ».
+ * Technicien et gestion : « Mes bons aujourd'hui » (bons du jour et bons en
+ * route / sur place), ouverts d'un toucher.
  * Admin/manager : projets actifs, bons de travail du jour.
  */
 import { useMemo } from 'react';
@@ -8,14 +10,14 @@ import { useRouter } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppHeader } from '../../src/components/AppHeader';
-import { Button, Card, SectionTitle } from '../../src/components/Primitives';
+import { Badge, Button, Card, SectionTitle } from '../../src/components/Primitives';
 import { Screen } from '../../src/components/Screen';
 import { useAuth } from '../../src/auth/AuthContext';
-import { isElevated } from '../../src/auth/access';
+import { canAccess, isElevated } from '../../src/auth/access';
 import { projects as projectsApi, timesheet, workOrders } from '../../src/api/endpoints';
 import { useQuery } from '../../src/api/useApi';
 import { formatHours } from '../../src/lib/time';
-import { toISODate } from '../../src/lib/format';
+import { formatDate, toISODate, workOrderStatusStyle } from '../../src/lib/format';
 import { colors, radius, spacing, typography } from '../../src/theme';
 
 /** Lundi 00:00 de la semaine courante. */
@@ -50,8 +52,9 @@ function StatCard({
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user } = useAuth();
-  const elevated = !!user && isElevated(user);
+  const { user, mode } = useAuth();
+  const elevated = !!user && mode === 'token' && isElevated(user);
+  const fieldUser = !!user && canAccess('work-orders', user, mode);
 
   const entriesQ = useQuery(() => timesheet.myEntries(), []);
   const projectsQ = useQuery(
@@ -59,8 +62,8 @@ export default function HomeScreen() {
     [elevated],
   );
   const workOrdersQ = useQuery(
-    () => (elevated ? workOrders.list() : Promise.resolve([])),
-    [elevated],
+    () => (fieldUser ? workOrders.list() : Promise.resolve([])),
+    [fieldUser],
   );
 
   const weekSummary = useMemo(() => {
@@ -80,20 +83,30 @@ export default function HomeScreen() {
 
   const todayISO = toISODate(new Date());
   const todaysWorkOrders = (workOrdersQ.data ?? []).filter(
-    (w) => w.scheduledDate && w.scheduledDate.slice(0, 10) === todayISO,
+    (w) => !!w.scheduledDate && toISODate(new Date(w.scheduledDate)) === todayISO,
   ).length;
+  // Mes bons : ceux du jour et ceux déjà en route / sur place (le portail
+  // ne renvoie au technicien que ses propres bons).
+  const myWorkOrders = (workOrdersQ.data ?? [])
+    .filter(
+      (w) =>
+        w.status === 'en_route' ||
+        w.status === 'en_cours' ||
+        (!!w.scheduledDate &&
+          toISODate(new Date(w.scheduledDate)) === todayISO &&
+          !['complete', 'en_revision', 'a_facturer', 'facture', 'non_facture'].includes(w.status)),
+    )
+    .slice(0, 8);
   const activeProjects = (projectsQ.data ?? []).filter(
-    (p) => p.status === 'active' || p.status === 'planning',
+    (p) => p.status === 'en_cours' || p.status === 'preparation' || p.status === 'reception',
   ).length;
 
   const refreshing =
     entriesQ.refreshing || projectsQ.refreshing || workOrdersQ.refreshing;
   const onRefresh = () => {
     entriesQ.refetch();
-    if (elevated) {
-      projectsQ.refetch();
-      workOrdersQ.refetch();
-    }
+    if (fieldUser) workOrdersQ.refetch();
+    if (elevated) projectsQ.refetch();
   };
 
   return (
@@ -101,6 +114,44 @@ export default function HomeScreen() {
       <AppHeader />
 
       <View style={styles.body}>
+        {fieldUser ? (
+          <View style={styles.myBlock}>
+            <SectionTitle>Mes bons aujourd'hui</SectionTitle>
+            {myWorkOrders.length === 0 ? (
+              <Card>
+                <Text style={styles.empty}>
+                  {workOrdersQ.loading ? 'Chargement…' : "Aucun bon prévu aujourd'hui."}
+                </Text>
+              </Card>
+            ) : (
+              myWorkOrders.map((w) => {
+                const st = workOrderStatusStyle(w.status);
+                return (
+                  <Card
+                    key={w.id}
+                    style={styles.woCard}
+                    onPress={() => router.push(`/(tabs)/work-orders/${w.id}`)}
+                  >
+                    <View style={styles.woTop}>
+                      <Text style={styles.woNumber}>{w.number}</Text>
+                      <Badge label={st.label} color={st.color} bg={st.bg} />
+                    </View>
+                    <Text style={styles.woTitle} numberOfLines={1}>
+                      {w.client ? `${w.client} · ` : ''}
+                      {w.title}
+                    </Text>
+                    {w.address ? (
+                      <Text style={styles.woMeta} numberOfLines={1}>{w.address}</Text>
+                    ) : w.scheduledDate ? (
+                      <Text style={styles.woMeta}>{formatDate(w.scheduledDate)}</Text>
+                    ) : null}
+                  </Card>
+                );
+              })
+            )}
+          </View>
+        ) : null}
+
         {/* Résumé d'heures — visible pour tous. */}
         <SectionTitle>Mes heures cette semaine</SectionTitle>
         <Card style={styles.hoursCard}>
@@ -211,4 +262,11 @@ const styles = StyleSheet.create({
   },
   statLabel: { fontSize: typography.small, color: colors.textMuted },
   quickLinks: { marginTop: spacing.xs },
+  myBlock: { marginBottom: spacing.lg },
+  empty: { color: colors.textMuted, fontSize: typography.small },
+  woCard: { marginBottom: spacing.sm, gap: spacing.xs },
+  woTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  woNumber: { fontSize: typography.small, fontWeight: typography.weightBold, color: colors.navy },
+  woTitle: { fontSize: typography.body, fontWeight: typography.weightSemibold, color: colors.text },
+  woMeta: { fontSize: typography.small, color: colors.textMuted },
 });
