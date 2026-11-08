@@ -21,19 +21,29 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/** Jeton enregistré pour cette session, désactivé à la déconnexion. */
-let registeredToken: string | null = null;
+/**
+ * Enregistrement en cours ou terminé pour cette session (jeton, ou null).
+ * La déconnexion l'attend : un enregistrement encore en vol au moment du
+ * « Se déconnecter » serait sinon terminé côté portail après coup, et
+ * l'appareil recevrait encore les pushs du compte.
+ */
+let registration: Promise<string | null> | null = null;
 
 function easProjectId(): string | null {
   const extra = Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined;
   return extra?.eas?.projectId ?? Constants.easConfig?.projectId ?? null;
 }
 
-export async function registerForPush(): Promise<void> {
+export function registerForPush(): Promise<void> {
+  registration = doRegister();
+  return registration.then(() => undefined);
+}
+
+async function doRegister(): Promise<string | null> {
   try {
-    if (!Device.isDevice || Platform.OS === 'web') return;
+    if (!Device.isDevice || Platform.OS === 'web') return null;
     const projectId = easProjectId();
-    if (!projectId) return;
+    if (!projectId) return null;
 
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
@@ -46,20 +56,22 @@ export async function registerForPush(): Promise<void> {
     if (status !== 'granted') {
       ({ status } = await Notifications.requestPermissionsAsync());
     }
-    if (status !== 'granted') return;
+    if (status !== 'granted') return null;
 
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
     await push.register(token, Platform.OS === 'ios' ? 'ios' : 'android', Device.deviceName ?? undefined);
-    registeredToken = token;
+    return token;
   } catch (e) {
     console.warn('[push] enregistrement impossible', e);
+    return null;
   }
 }
 
 /** À appeler AVANT d'effacer la session (l'appel exige encore le jeton). */
 export async function unregisterPush(): Promise<void> {
-  const token = registeredToken;
-  registeredToken = null;
+  const pending = registration;
+  registration = null;
+  const token = pending ? await pending : null;
   if (!token) return;
   try {
     await push.deactivate(token);
