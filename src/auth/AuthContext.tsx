@@ -17,6 +17,7 @@ import React, {
 } from 'react';
 import { auth } from '../api/endpoints';
 import { registerForPush, unregisterPush } from '../notifications/push';
+import { clearCalendarReminders, syncCalendarReminders } from '../notifications/reminders';
 import { setUnauthorizedHandler } from '../api/client';
 import type { AuthUser, Session } from '../api/types';
 import { clearSession, loadSession, saveSession, setActiveAuth } from './session';
@@ -57,6 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Avant d'effacer le jeton : le portail doit savoir qu'il ne faut plus
     // pousser vers cet appareil.
     await unregisterPush();
+    await clearCalendarReminders();
     if (expiryTimer.current) {
       clearTimeout(expiryTimer.current);
       expiryTimer.current = null;
@@ -109,6 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (restored) {
         await applySession(restored);
         void registerForPush();
+        void syncCalendarReminders(Number(restored.user.id));
       }
       setInitializing(false);
     })();
@@ -142,6 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         expiresAt: Date.now() + SESSION_MS,
       });
       void registerForPush();
+      void syncCalendarReminders(Number(me.id));
     },
     [applySession],
   );

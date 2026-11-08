@@ -29,6 +29,8 @@ import type {
   UserListItem,
   ServiceTypeItem,
   ScheduleItem,
+  AgendaEntry,
+  CalendarPerson,
   ScheduleInput,
   CreateWorkOrderInput,
   CreateWorkOrderResult,
@@ -611,7 +613,88 @@ export const serviceTypes = {
 };
 
 /** Cédule (server/routers/calendar.ts). */
+/** Bon daté de calendar.agenda (heure en UTC côté serveur). */
+interface AgendaWorkOrderRow {
+  id: number;
+  ticketNumber: string;
+  technicianId: number | null;
+  technicianName: string | null;
+  serviceDate: Date | string | null;
+  durationMinutes: number | null;
+  serviceType: string | null;
+  location: string | null;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const localYmd = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const localHm = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+/** Couleur des bons dans la Cédule (or de la marque). */
+export const WORK_ORDER_COLOR = '#C9A227';
+
 export const schedule = {
+  /** Rendez-vous des personnes demandées (vide = soi) et leurs bons datés. */
+  agenda: async (input: {
+    startDate: string;
+    endDate: string;
+    userIds?: number[];
+    includeWorkOrders?: boolean;
+  }): Promise<AgendaEntry[]> => {
+    const res: { events: ScheduleItem[]; workOrders: AgendaWorkOrderRow[] } =
+      await trpc.calendar.agenda.query(input);
+    const events: AgendaEntry[] = res.events.map(e => ({
+      key: `e${e.id}`,
+      kind: 'event',
+      id: e.id,
+      userId: e.userId,
+      userName: e.userName ?? null,
+      date: e.workDate,
+      start: e.startTime,
+      end: e.endTime,
+      allDay: !!e.allDay,
+      title: e.title,
+      location: e.location ?? null,
+      notes: e.notes ?? null,
+      color: e.color ?? null,
+      reminderMinutes: e.reminderMinutes ?? null,
+      reminder2Minutes: e.reminder2Minutes ?? null,
+      canEdit: e.canEdit !== false,
+    }));
+    const workOrders: AgendaEntry[] = [];
+    for (const w of res.workOrders) {
+      if (!w.serviceDate || w.technicianId == null) continue;
+      const start = new Date(w.serviceDate);
+      const end = new Date(start.getTime() + (w.durationMinutes || 60) * 60000);
+      const date = localYmd(start);
+      // Le serveur prend une marge d'un jour : on garde la plage demandée.
+      if (date < input.startDate || date > input.endDate) continue;
+      workOrders.push({
+        key: `w${w.id}`,
+        kind: 'work_order',
+        id: w.id,
+        userId: w.technicianId,
+        userName: w.technicianName,
+        date,
+        start: localHm(start),
+        end: localYmd(end) === date ? localHm(end) : '23:59',
+        allDay: false,
+        title: `${w.ticketNumber}${w.serviceType ? ` · ${w.serviceType}` : ''}`,
+        location: w.location,
+        notes: null,
+        color: WORK_ORDER_COLOR,
+        reminderMinutes: null,
+        reminder2Minutes: null,
+        canEdit: false,
+      });
+    }
+    return [...events, ...workOrders].sort((a, b) =>
+      a.date === b.date
+        ? Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start)
+        : a.date.localeCompare(b.date),
+    );
+  },
+  people: (): Promise<CalendarPerson[]> => trpc.calendar.people.query(),
+
   list: (input?: { startDate?: string; endDate?: string; userId?: number }): Promise<ScheduleItem[]> =>
     trpc.calendar.list.query(input ?? {}),
   create: (input: ScheduleInput): Promise<{ id: number }> => trpc.calendar.create.mutate(input),

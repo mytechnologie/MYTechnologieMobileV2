@@ -465,6 +465,15 @@ export interface ScheduleItem {
   notes?: string | null;
   color?: string | null;
   status?: string | null;
+  allDay?: boolean | null;
+  location?: string | null;
+  /** Alertes : minutes avant le début (null = aucune). */
+  reminderMinutes?: number | null;
+  reminder2Minutes?: number | null;
+  projectId?: number | null;
+  workOrderId?: number | null;
+  /** calendar.agenda : modifiable par l'utilisateur connecté. */
+  canEdit?: boolean;
   createdAt?: ApiDate;
   updatedAt?: ApiDate;
 }
@@ -484,4 +493,37 @@ export interface ScheduleInput {
   notes?: string | null;
   color?: string | null;
   status?: string;
+  allDay?: boolean;
+  location?: string | null;
+  reminderMinutes?: number | null;
+  reminder2Minutes?: number | null;
+}
+
+/** Une ligne de la Cédule : rendez-vous (calendar_schedules) ou bon assigné. */
+export interface AgendaEntry {
+  /** Unique dans la liste : 'e12' (rendez-vous) ou 'w34' (bon). */
+  key: string;
+  kind: 'event' | 'work_order';
+  /** id du rendez-vous, ou du bon pour kind 'work_order'. */
+  id: number;
+  userId: number;
+  userName: string | null;
+  /** YYYY-MM-DD, date locale. */
+  date: string;
+  /** HH:MM. */
+  start: string;
+  end: string;
+  allDay: boolean;
+  title: string;
+  location: string | null;
+  notes: string | null;
+  color: string | null;
+  reminderMinutes: number | null;
+  reminder2Minutes: number | null;
+  canEdit: boolean;
+}
+
+export interface CalendarPerson {
+  id: number;
+  name: string;
 }
