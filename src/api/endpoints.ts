@@ -374,3 +374,131 @@ export const timesheet = {
   submitEntries: (input: SubmitTimesheetEntriesInput): Promise<{ success: boolean; count: number }> =>
     trpc.timesheet.submitEntries.mutate({ ids: input.ids.map(Number) }),
 };
+
+// ─── Pointage (server/routers/punch.ts) ─────────────────────────────────────
+
+export interface PunchStatus {
+  isClockedIn: boolean;
+  /** Heure du dernier poinçon (arrivée si pointé). */
+  since: Date | null;
+  /** Rattachement du poinçon en cours, pour l'affichage. */
+  label: string | null;
+  workOrderId: string | null;
+}
+
+interface PunchStatusRow {
+  isClockedIn: boolean;
+  lastPunch: {
+    punchedAt: Date | string;
+    workOrderId: number | null;
+    projectName: string | null;
+    projectPhaseName: string | null;
+  } | null;
+}
+
+export const punch = {
+  status: async (): Promise<PunchStatus> => {
+    const row = (await trpc.punch.getStatus.query()) as PunchStatusRow;
+    const last = row.lastPunch;
+    const label = last?.projectName
+      ? [last.projectName, last.projectPhaseName].filter(Boolean).join(' › ')
+      : null;
+    return {
+      isClockedIn: row.isClockedIn,
+      since: last ? new Date(last.punchedAt) : null,
+      label,
+      workOrderId: last?.workOrderId != null ? String(last.workOrderId) : null,
+    };
+  },
+  clockIn: (input: { workOrderId?: string; notes?: string } = {}): Promise<{ id: number }> =>
+    trpc.punch.clockIn.mutate({
+      workOrderId: input.workOrderId ? Number(input.workOrderId) : undefined,
+      notes: input.notes,
+    }),
+  clockOut: (notes?: string): Promise<{ id: number }> => trpc.punch.clockOut.mutate({ notes }),
+};
+
+// ─── Notifications push (server/routers/notifications.ts) ───────────────────
+
+export const push = {
+  register: (token: string, platform: 'ios' | 'android', deviceName?: string) =>
+    trpc.notifications.registerPushToken.mutate({ token, platform, deviceName }),
+  deactivate: (token: string) => trpc.notifications.deactivatePushToken.mutate({ token }),
+};
+
+// ─── Approbation des heures (timesheet.approvalQueue / approve / reject) ────
+
+export interface ApprovalEntry {
+  id: string;
+  userId: string;
+  userName: string;
+  date: string;
+  hours: number;
+  startTime: string | null;
+  endTime: string | null;
+  label: string | null;
+  notes: string | null;
+}
+
+/** Entrées soumises regroupées par employé (maquette « À approuver »). */
+export interface ApprovalGroup {
+  userId: string;
+  userName: string;
+  totalHours: number;
+  entries: ApprovalEntry[];
+}
+
+interface ApprovalRow {
+  id: number;
+  userId: number;
+  userName: string | null;
+  entryDate: Date | string;
+  startTime: string | null;
+  endTime: string | null;
+  computedHours: number;
+  linkType: string | null;
+  projectName: string | null;
+  projectPhaseName: string | null;
+  investigationId: number | null;
+  notes: string | null;
+}
+
+export const approvals = {
+  queue: async (): Promise<ApprovalGroup[]> => {
+    const rows = (await trpc.timesheet.approvalQueue.query()) as ApprovalRow[];
+    const groups = new Map<string, ApprovalGroup>();
+    for (const r of rows) {
+      const userId = String(r.userId);
+      const userName = r.userName ?? `Employé ${r.userId}`;
+      let g = groups.get(userId);
+      if (!g) {
+        g = { userId, userName, totalHours: 0, entries: [] };
+        groups.set(userId, g);
+      }
+      const label =
+        r.linkType === 'project' && r.projectName
+          ? [r.projectName, r.projectPhaseName].filter(Boolean).join(' › ')
+          : r.linkType === 'investigation' && r.investigationId
+            ? `Enquête #${r.investigationId}`
+            : null;
+      const hours = Number(r.computedHours) || 0;
+      g.totalHours += hours;
+      g.entries.push({
+        id: String(r.id),
+        userId,
+        userName,
+        date: ymd(r.entryDate),
+        hours,
+        startTime: r.startTime,
+        endTime: r.endTime,
+        label,
+        notes: r.notes,
+      });
+    }
+    return [...groups.values()].sort((a, b) => a.userName.localeCompare(b.userName, 'fr'));
+  },
+  approve: (ids: string[]): Promise<{ success: boolean; count: number }> =>
+    trpc.timesheet.approve.mutate({ ids: ids.map(Number) }),
+  reject: (id: string, reason: string): Promise<{ success: boolean }> =>
+    trpc.timesheet.reject.mutate({ id: Number(id), reason }),
+};

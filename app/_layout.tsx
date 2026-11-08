@@ -7,7 +7,9 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as Notifications from 'expo-notifications';
 import { AuthProvider, useAuth } from '../src/auth/AuthContext';
+import { workOrderIdOf } from '../src/notifications/push';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -26,6 +28,17 @@ function RootNavigator() {
       router.replace('/(tabs)');
     }
   }, [initializing, isAuthenticated, segments, router]);
+
+  // Notification touchée (bon assigné, statut changé) : ouvre le bon.
+  const lastResponse = Notifications.useLastNotificationResponse();
+  useEffect(() => {
+    if (initializing || !isAuthenticated) return;
+    const id = workOrderIdOf(lastResponse ?? null);
+    if (id) {
+      router.push(`/(tabs)/work-orders/${id}`);
+      void Notifications.clearLastNotificationResponseAsync();
+    }
+  }, [lastResponse, initializing, isAuthenticated, router]);
 
   // Masque le splash dès que la session est restaurée.
   useEffect(() => {

@@ -14,6 +14,7 @@ export default function TimesheetLayout() {
       <Stack.Screen name="index" options={{ title: "Saisie d'heures" }} />
       <Stack.Screen name="new" options={{ title: 'Nouvelle saisie', presentation: 'modal' }} />
       <Stack.Screen name="[id]" options={{ title: 'Modifier la saisie', presentation: 'modal' }} />
+      <Stack.Screen name="approvals" options={{ title: 'Heures à approuver' }} />
     </Stack>
   );
 }

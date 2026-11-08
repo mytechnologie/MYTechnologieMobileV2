@@ -14,6 +14,7 @@ import React, {
   useState,
 } from 'react';
 import { auth } from '../api/endpoints';
+import { registerForPush, unregisterPush } from '../notifications/push';
 import { setUnauthorizedHandler } from '../api/client';
 import type { AuthUser, Session } from '../api/types';
 import { clearSession, loadSession, saveSession, setActiveAuth } from './session';
@@ -51,6 +52,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const expiryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const doSignOut = useCallback(async () => {
+    // Avant d'effacer le jeton : le portail doit savoir qu'il ne faut plus
+    // pousser vers cet appareil.
+    await unregisterPush();
     if (expiryTimer.current) {
       clearTimeout(expiryTimer.current);
       expiryTimer.current = null;
@@ -82,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const restored = await loadSession();
       if (restored) {
         await applySession(restored);
+        void registerForPush();
       }
       setInitializing(false);
     })();
@@ -114,6 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         mode: 'token',
         expiresAt: Date.now() + EIGHT_HOURS_MS,
       });
+      void registerForPush();
     },
     [applySession],
   );
