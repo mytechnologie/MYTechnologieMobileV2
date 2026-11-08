@@ -665,7 +665,11 @@ export const schedule = {
       if (!w.serviceDate || w.technicianId == null) continue;
       const start = new Date(w.serviceDate);
       const end = new Date(start.getTime() + (w.durationMinutes || 60) * 60000);
-      const date = localYmd(start);
+      // Bon saisi avec une date seule au portail : minuit UTC pile, soit la
+      // veille au soir ici. On le garde en journée entière à sa date UTC.
+      const dateOnly =
+        start.getUTCHours() === 0 && start.getUTCMinutes() === 0 && start.getUTCSeconds() === 0;
+      const date = dateOnly ? start.toISOString().slice(0, 10) : localYmd(start);
       // Le serveur prend une marge d'un jour : on garde la plage demandée.
       if (date < input.startDate || date > input.endDate) continue;
       workOrders.push({
@@ -675,9 +679,9 @@ export const schedule = {
         userId: w.technicianId,
         userName: w.technicianName,
         date,
-        start: localHm(start),
-        end: localYmd(end) === date ? localHm(end) : '23:59',
-        allDay: false,
+        start: dateOnly ? '00:00' : localHm(start),
+        end: dateOnly ? '23:59' : localYmd(end) === date ? localHm(end) : '23:59',
+        allDay: dateOnly,
         title: `${w.ticketNumber}${w.serviceType ? ` · ${w.serviceType}` : ''}`,
         location: w.location,
         notes: null,
