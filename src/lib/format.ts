@@ -106,6 +106,7 @@ export function projectStatusStyle(status: ProjectStatus): StatusStyle {
 
 const TASK_LABELS: Record<string, StatusStyle> = {
   a_venir: { label: 'À venir', color: colors.textMuted, bg: colors.surfaceAlt },
+  en_cours: { label: 'En cours', color: colors.warning, bg: colors.warningBg },
   terminee: { label: 'Terminée', color: colors.success, bg: colors.successBg },
   todo: { label: 'À faire', color: colors.textMuted, bg: colors.surfaceAlt },
   in_progress: { label: 'En cours', color: colors.warning, bg: colors.warningBg },
@@ -121,6 +122,19 @@ export function taskStatusStyle(status: ProjectTaskStatus): StatusStyle {
       bg: colors.surfaceAlt,
     }
   );
+}
+
+const DEVICE_LABELS: Record<string, StatusStyle> = {
+  prevu: { label: 'Prévu', color: colors.textMuted, bg: colors.surfaceAlt },
+  installe: { label: 'Installé', color: colors.warning, bg: colors.warningBg },
+  configure: { label: 'Configuré', color: colors.info, bg: colors.infoBg },
+  verifie: { label: 'Vérifié', color: colors.success, bg: colors.successBg },
+};
+
+export const DEVICE_STATUS_OPTIONS = ['prevu', 'installe', 'configure', 'verifie'] as const;
+
+export function deviceStatusStyle(status: string): StatusStyle {
+  return DEVICE_LABELS[status] ?? { label: status, color: colors.textMuted, bg: colors.surfaceAlt };
 }
 
 /** Libellé lisible du rôle. */

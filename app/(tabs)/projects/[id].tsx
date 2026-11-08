@@ -1,203 +1,288 @@
 /**
- * Détail d'un projet : phases, tâches (lecture/statut), heures, budget.
+ * Suivi de projet (maquette écran « Projet ») : avancement, phases avec leurs
+ * sous-phases à cocher, et appareils du chantier (statut, relevé, scan).
+ * Les changements passent par les routes terrain du portail
+ * (projects.fieldSetPhaseStatus / fieldUpdateDevice).
  */
-import { useLocalSearchParams, useNavigation } from 'expo-router';
-import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import {
-  Badge,
-  Card,
-  InfoRow,
-  ProgressBar,
-  SectionTitle,
-} from '../../../src/components/Primitives';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Badge, Button, Card, ProgressBar } from '../../../src/components/Primitives';
 import { Screen } from '../../../src/components/Screen';
 import { ErrorState, LoadingState } from '../../../src/components/States';
-import { projectTasks, projects as projectsApi } from '../../../src/api/endpoints';
+import { projects as projectsApi } from '../../../src/api/endpoints';
 import { useQuery } from '../../../src/api/useApi';
-import {
-  projectStatusStyle,
-  taskStatusStyle,
-} from '../../../src/lib/format';
+import { deviceStatusStyle, projectStatusStyle, taskStatusStyle } from '../../../src/lib/format';
 import { formatHours } from '../../../src/lib/time';
-import type { ProjectTask } from '../../../src/api/types';
-import { colors, spacing, typography } from '../../../src/theme';
+import type { PhaseStatus, ProjectDevice, ProjectPhase } from '../../../src/api/types';
+import { colors, radius, spacing, typography } from '../../../src/theme';
+
+type Tab = 'phases' | 'devices';
+
+/** Avancement d'une phase : part des sous-phases terminées, sinon son statut. */
+function phasePct(ph: ProjectPhase): number {
+  if (ph.children.length > 0) {
+    const done = ph.children.filter(c => c.status === 'terminee').length;
+    return Math.round((done / ph.children.length) * 100);
+  }
+  return ph.status === 'terminee' ? 100 : ph.status === 'en_cours' ? 50 : 0;
+}
+
+function PhaseCard({
+  phase,
+  index,
+  onSet,
+  busyId,
+}: {
+  phase: ProjectPhase;
+  index: number;
+  onSet: (id: string, status: PhaseStatus) => void;
+  busyId: string | null;
+}) {
+  const pct = phasePct(phase);
+  const st = taskStatusStyle(phase.status);
+  const current = phase.status === 'en_cours';
+  const next: { status: PhaseStatus; label: string } | null =
+    phase.status === 'a_venir'
+      ? { status: 'en_cours', label: 'Démarrer la phase' }
+      : phase.status === 'en_cours'
+        ? { status: 'terminee', label: 'Terminer la phase' }
+        : null;
+
+  return (
+    <Card style={[styles.phase, current && styles.phaseCurrent]}>
+      <View style={styles.rowBetween}>
+        <Text style={styles.phaseName}>
+          {index + 1}. {phase.name}
+        </Text>
+        <Badge
+          label={current && phase.children.length > 0 ? `${st.label} · ${pct} %` : st.label}
+          color={st.color}
+          bg={st.bg}
+        />
+      </View>
+      <ProgressBar value={pct} />
+      {phase.hoursPct != null ? (
+        <Text style={styles.muted}>Heures : {phase.hoursPct} % du budget</Text>
+      ) : null}
+      {phase.children.map(c => {
+        const done = c.status === 'terminee';
+        return (
+          <Pressable
+            key={c.id}
+            style={styles.check}
+            disabled={busyId === c.id}
+            onPress={() => onSet(c.id, done ? 'en_cours' : 'terminee')}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: done }}
+          >
+            <Ionicons
+              name={done ? 'checkbox' : 'square-outline'}
+              size={24}
+              color={busyId === c.id ? colors.disabled : colors.navy}
+            />
+            <Text style={[styles.checkLabel, done && styles.checkDone]}>{c.name}</Text>
+          </Pressable>
+        );
+      })}
+      {next ? (
+        <Button
+          title={next.label}
+          variant="secondary"
+          loading={busyId === phase.id}
+          onPress={() => onSet(phase.id, next.status)}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+function DeviceRow({ device, onPress }: { device: ProjectDevice; onPress: () => void }) {
+  const st = deviceStatusStyle(device.status);
+  const meta = [device.model, device.serialNumber && `S/N ${device.serialNumber}`, device.ipAddress]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <Pressable style={styles.device} onPress={onPress} accessibilityRole="button">
+      <View style={styles.deviceText}>
+        <Text style={styles.deviceName}>{device.name}</Text>
+        <Text style={styles.muted} numberOfLines={1}>
+          {meta || device.location || 'Aucun relevé'}
+        </Text>
+      </View>
+      <Badge label={st.label} color={st.color} bg={st.bg} />
+      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+    </Pressable>
+  );
+}
 
 export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
+  const router = useRouter();
   const projectId = String(id);
+  const [tab, setTab] = useState<Tab>('phases');
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  const projectQ = useQuery(() => projectsApi.getById(projectId), [projectId]);
-  const tasksQ = useQuery(() => projectTasks.listByProject(projectId), [projectId]);
+  const q = useQuery(() => projectsApi.getById(projectId), [projectId]);
 
   useEffect(() => {
-    if (projectQ.data?.name) {
-      navigation.setOptions({ title: projectQ.data.name });
+    if (q.data?.code) navigation.setOptions({ title: q.data.code });
+  }, [navigation, q.data?.code]);
+
+  // Retour de la fiche d'un appareil : relevés à jour.
+  useFocusEffect(
+    useCallback(() => {
+      q.refetch();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
+
+  const byZone = useMemo(() => {
+    const groups = new Map<string, ProjectDevice[]>();
+    for (const d of q.data?.devices ?? []) {
+      const key = d.zone ?? 'Sans zone';
+      groups.set(key, [...(groups.get(key) ?? []), d]);
     }
-  }, [navigation, projectQ.data?.name]);
+    return [...groups.entries()];
+  }, [q.data?.devices]);
 
-  if (projectQ.loading) return <LoadingState label="Chargement du projet…" />;
-  if (projectQ.error || !projectQ.data) {
-    return <ErrorState message={projectQ.error?.message} onRetry={projectQ.refetch} />;
-  }
+  if (q.loading) return <LoadingState label="Chargement du projet…" />;
+  if (q.error || !q.data) return <ErrorState message={q.error?.message} onRetry={q.refetch} />;
 
-  const project = projectQ.data;
+  const project = q.data;
   const status = projectStatusStyle(project.status);
   const progress = project.progress ?? 0;
-  const tasks = tasksQ.data ?? [];
+  const installed = project.devices.filter(d => d.status !== 'prevu').length;
+
+  const setPhase = async (phaseId: string, next: PhaseStatus) => {
+    setBusyId(phaseId);
+    try {
+      await projectsApi.setPhaseStatus(phaseId, next);
+      q.refetch();
+    } catch (e) {
+      Alert.alert('Phase', e instanceof Error ? e.message : 'Mise à jour impossible.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openDevice = (deviceId: string) =>
+    router.push({ pathname: '/(tabs)/projects/device', params: { projectId, deviceId } });
 
   return (
-    <Screen scroll refreshing={projectQ.refreshing} onRefresh={projectQ.refetch}>
-      <Card style={styles.headerCard}>
-        <View style={styles.headerTop}>
-          <Text style={styles.title}>{project.name}</Text>
+    <Screen scroll refreshing={q.refreshing} onRefresh={q.refetch}>
+      <Card style={styles.header}>
+        <View style={styles.rowBetween}>
+          <Text style={styles.kicker} numberOfLines={1}>
+            {[project.code, project.client].filter(Boolean).join(' · ')}
+          </Text>
           <Badge label={status.label} color={status.color} bg={status.bg} />
         </View>
-        {project.client ? <Text style={styles.client}>{project.client}</Text> : null}
-        {project.description ? (
-          <Text style={styles.desc}>{project.description}</Text>
-        ) : null}
-
-        <View style={styles.progressBlock}>
-          <View style={styles.progressLabelRow}>
-            <Text style={styles.progressLabel}>Avancement</Text>
-            <Text style={styles.progressPct}>{Math.round(progress)} %</Text>
-          </View>
-          <ProgressBar value={progress} />
+        <Text style={styles.title}>{project.title}</Text>
+        <View style={styles.rowBetween}>
+          <Text style={styles.body}>Avancement {Math.round(progress)} %</Text>
+          <Text style={styles.muted}>
+            {formatHours(project.spentHours ?? 0)} / {formatHours(project.budgetHours ?? 0)}
+          </Text>
         </View>
+        <ProgressBar value={progress} />
       </Card>
 
-      {/* Heures & budget */}
-      <SectionTitle>Heures & budget</SectionTitle>
-      <Card style={styles.block}>
-        <InfoRow
-          label="Heures"
-          value={`${formatHours(project.spentHours ?? 0)} / ${
-            project.budgetHours != null ? formatHours(project.budgetHours) : '—'
-          }`}
-        />
-        <InfoRow
-          label="Budget"
-          value={
-            project.budgetAmount != null
-              ? `${(project.spentAmount ?? 0).toLocaleString('fr-CA')} $ / ${project.budgetAmount.toLocaleString('fr-CA')} $`
-              : '—'
-          }
-        />
-      </Card>
+      <View style={styles.tabs}>
+        {(
+          [
+            ['phases', `Phases (${project.phases.length})`],
+            ['devices', `Appareils (${installed}/${project.devices.length})`],
+          ] as [Tab, string][]
+        ).map(([key, label]) => (
+          <Pressable
+            key={key}
+            style={[styles.tab, tab === key && styles.tabOn]}
+            onPress={() => setTab(key)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: tab === key }}
+          >
+            <Text style={[styles.tabText, tab === key && styles.tabTextOn]}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
 
-      {/* Phases */}
-      {project.phases && project.phases.length > 0 ? (
-        <>
-          <SectionTitle>Phases</SectionTitle>
-          <Card style={styles.block}>
-            {project.phases.map((ph) => (
-              <View key={ph.id} style={styles.phaseRow}>
-                <Text style={styles.phaseName}>{ph.name}</Text>
-                <Text style={styles.phaseProgress}>
-                  {ph.progress != null ? `${Math.round(ph.progress)} %` : (ph.status ?? '')}
-                </Text>
-              </View>
-            ))}
+      {tab === 'phases' ? (
+        project.phases.length === 0 ? (
+          <Card>
+            <Text style={styles.muted}>Aucune phase définie au portail.</Text>
           </Card>
-        </>
-      ) : null}
-
-      {/* Tâches */}
-      <SectionTitle>Tâches</SectionTitle>
-      {tasksQ.loading ? (
-        <Card style={styles.block}>
-          <Text style={styles.muted}>Chargement des tâches…</Text>
-        </Card>
-      ) : tasksQ.error ? (
-        <Card style={styles.block}>
-          <Text style={styles.muted}>Tâches indisponibles.</Text>
-        </Card>
-      ) : tasks.length === 0 ? (
-        <Card style={styles.block}>
-          <Text style={styles.muted}>Aucune tâche.</Text>
+        ) : (
+          project.phases.map((ph, i) => (
+            <PhaseCard key={ph.id} phase={ph} index={i} onSet={setPhase} busyId={busyId} />
+          ))
+        )
+      ) : project.devices.length === 0 ? (
+        <Card>
+          <Text style={styles.muted}>Aucun appareil prévu sur ce projet.</Text>
         </Card>
       ) : (
-        <View style={styles.taskList}>
-          {tasks.map((t) => (
-            <TaskRow key={t.id} task={t} />
-          ))}
-        </View>
+        byZone.map(([zone, devices]) => (
+          <View key={zone} style={styles.zone}>
+            <Text style={styles.zoneTitle}>{zone}</Text>
+            <Card style={styles.deviceList}>
+              {devices.map(d => (
+                <DeviceRow key={d.id} device={d} onPress={() => openDevice(d.id)} />
+              ))}
+            </Card>
+          </View>
+        ))
       )}
     </Screen>
   );
 }
 
-function TaskRow({ task }: { task: ProjectTask }) {
-  const s = taskStatusStyle(task.status);
-  return (
-    <Card style={styles.taskCard}>
-      <View style={styles.taskTop}>
-        <Text style={styles.taskName} numberOfLines={2}>
-          {task.name}
-        </Text>
-        <Badge label={s.label} color={s.color} bg={s.bg} />
-      </View>
-      <View style={styles.taskMeta}>
-        {task.phaseName ? <Text style={styles.muted}>{task.phaseName}</Text> : null}
-        {task.estimatedHours != null ? (
-          <Text style={styles.muted}>
-            {formatHours(task.loggedHours ?? 0)} / {formatHours(task.estimatedHours)}
-          </Text>
-        ) : null}
-      </View>
-    </Card>
-  );
-}
-
 const styles = StyleSheet.create({
-  headerCard: { marginBottom: spacing.lg, gap: spacing.sm },
-  headerTop: {
+  header: { marginBottom: spacing.md, gap: spacing.sm },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
+  kicker: { flex: 1, fontSize: typography.small, color: colors.textMuted, fontWeight: typography.weightSemibold },
+  title: { fontSize: typography.h3, fontWeight: typography.weightBold, color: colors.text },
+  body: { fontSize: typography.body, color: colors.text },
+  muted: { fontSize: typography.small, color: colors.textMuted },
+  tabs: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  tab: {
+    flex: 1,
+    height: 40,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabOn: { backgroundColor: colors.navy, borderColor: colors.navy },
+  tabText: { fontSize: typography.small, fontWeight: typography.weightSemibold, color: colors.navy },
+  tabTextOn: { color: colors.textOnNavy },
+  phase: { marginBottom: spacing.md, gap: spacing.sm },
+  phaseCurrent: { borderWidth: 2, borderColor: colors.gold },
+  phaseName: { flex: 1, fontSize: typography.body, fontWeight: typography.weightBold, color: colors.text },
+  check: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 40 },
+  checkLabel: { flex: 1, fontSize: typography.body, color: colors.text },
+  checkDone: { color: colors.textMuted, textDecorationLine: 'line-through' },
+  zone: { marginBottom: spacing.md },
+  zoneTitle: {
+    fontSize: typography.tiny,
+    fontWeight: typography.weightBold,
+    color: colors.textMuted,
+    marginBottom: spacing.xs,
+    textTransform: 'uppercase',
+  },
+  deviceList: { paddingVertical: 0 },
+  device: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     gap: spacing.sm,
-  },
-  title: {
-    flex: 1,
-    fontSize: typography.h2,
-    fontWeight: typography.weightBold,
-    color: colors.text,
-  },
-  client: { fontSize: typography.body, color: colors.textMuted },
-  desc: { fontSize: typography.small, color: colors.text, lineHeight: 20 },
-  progressBlock: { marginTop: spacing.sm, gap: spacing.xs },
-  progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  progressLabel: { fontSize: typography.small, color: colors.textMuted },
-  progressPct: {
-    fontSize: typography.small,
-    fontWeight: typography.weightSemibold,
-    color: colors.text,
-  },
-  block: { marginBottom: spacing.lg },
-  phaseRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
-  phaseName: { fontSize: typography.small, color: colors.text, flex: 1 },
-  phaseProgress: {
-    fontSize: typography.small,
-    color: colors.textMuted,
-    fontWeight: typography.weightMedium,
-  },
-  taskList: { gap: spacing.sm },
-  taskCard: { gap: spacing.xs },
-  taskTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-  },
-  taskName: { flex: 1, fontSize: typography.small, color: colors.text },
-  taskMeta: { flexDirection: 'row', justifyContent: 'space-between' },
-  muted: { fontSize: typography.tiny, color: colors.textMuted },
+  deviceText: { flex: 1 },
+  deviceName: { fontSize: typography.body, fontWeight: typography.weightSemibold, color: colors.text },
 });

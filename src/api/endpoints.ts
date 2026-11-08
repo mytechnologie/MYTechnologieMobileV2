@@ -21,7 +21,10 @@ import type {
   CreateTimesheetEntryInput,
   ProjectDetail,
   ProjectListItem,
-  ProjectTask,
+  ProjectPhase,
+  ProjectDevice,
+  PhaseStatus,
+  FieldDeviceInput,
   InvestigationOption,
   LoginInput,
   LoginResponse,
@@ -77,7 +80,9 @@ interface ProjectGetResponse {
     endDate: Date | string | null;
   };
   client: { name: string } | null;
-  phases: { id: number; parentId: number | null; name: string; status: string; sortOrder: number }[];
+  phases: { id: number; parentId: number | null; name: string; status: PhaseStatus; sortOrder: number }[];
+  zones: { id: number; name: string; code: string | null }[];
+  devices: (Omit<ProjectDevice, 'id' | 'zone'> & { id: number; zoneId: number | null })[];
   hours: {
     phases: { phaseId: number; budgetHours: number; timesheetHours: number; punchHours: number }[];
     totals: { budgetHours: number; actualHours: number; pct: number | null };
@@ -104,11 +109,23 @@ export const projects = {
     const res: ProjectGetResponse = await trpc.projects.getById.query({ id: Number(id) });
     const p = res.project;
     const hoursOf = new Map(res.hours.phases.map(h => [h.phaseId, h]));
-    // Phases puis leurs sous-phases (un seul niveau), dans l'ordre du portail.
-    const top = res.phases.filter(ph => ph.parentId == null);
-    const ordered = top.flatMap(ph => [ph, ...res.phases.filter(c => c.parentId === ph.id)]);
+    const zoneOf = new Map(res.zones.map(z => [z.id, z.code ? `${z.code} — ${z.name}` : z.name]));
+    const toPhase = (ph: ProjectGetResponse['phases'][number]): ProjectPhase => {
+      const h = hoursOf.get(ph.id);
+      const done = h ? h.timesheetHours + h.punchHours : 0;
+      return {
+        id: String(ph.id),
+        name: ph.name,
+        status: ph.status,
+        hoursPct: h && h.budgetHours > 0 ? Math.round((done / h.budgetHours) * 100) : null,
+        // Sous-phases dans l'ordre du portail (un seul niveau).
+        children: res.phases.filter(c => c.parentId === ph.id).map(toPhase),
+      };
+    };
     return {
       id: String(p.id),
+      code: p.code,
+      title: p.name,
       name: p.code ? `${p.code} — ${p.name}` : p.name,
       client: res.client?.name ?? null,
       status: p.status,
@@ -119,23 +136,22 @@ export const projects = {
       budgetAmount: p.budget != null ? Number(p.budget) : null,
       startDate: dateOrNull(p.startDate),
       endDate: dateOrNull(p.endDate),
-      phases: ordered.map(ph => {
-        const h = hoursOf.get(ph.id);
-        const done = h ? h.timesheetHours + h.punchHours : 0;
-        return {
-          id: String(ph.id),
-          name: ph.parentId == null ? ph.name : `› ${ph.name}`,
-          status: ph.status,
-          progress: h && h.budgetHours > 0 ? Math.round((done / h.budgetHours) * 100) : null,
-        };
-      }),
+      phases: res.phases.filter(ph => ph.parentId == null).map(toPhase),
+      devices: res.devices.map(({ zoneId, ...d }) => ({
+        ...d,
+        id: String(d.id),
+        zone: zoneId != null ? (zoneOf.get(zoneId) ?? null) : null,
+      })),
     };
   },
-};
 
-/** Le portail n'a pas de tâches distinctes des phases : rien à lister ici. */
-export const projectTasks = {
-  listByProject: async (_projectId: string): Promise<ProjectTask[]> => [],
+  /** Avancement d'une phase depuis le chantier (projects.fieldSetPhaseStatus). */
+  setPhaseStatus: (phaseId: string, status: PhaseStatus): Promise<{ success: boolean }> =>
+    trpc.projects.fieldSetPhaseStatus.mutate({ id: Number(phaseId), status }),
+
+  /** Relevé terrain d'un appareil (projects.fieldUpdateDevice). */
+  updateDevice: ({ id, ...rest }: FieldDeviceInput): Promise<{ success: boolean }> =>
+    trpc.projects.fieldUpdateDevice.mutate({ id: Number(id), ...rest }),
 };
 
 /* ------------------------------ work orders -------------------------------- */

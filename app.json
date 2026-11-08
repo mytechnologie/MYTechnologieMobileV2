@@ -56,6 +56,14 @@
         {
           "color": "#0a1f3d"
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "La caméra sert à photographier le travail et à lire l'étiquette des appareils installés.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
       ]
     ],
     "experiments": {

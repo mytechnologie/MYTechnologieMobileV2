@@ -122,18 +122,58 @@ export interface ProjectListItem {
   spentHours?: number | null;
 }
 
+export type PhaseStatus = 'a_venir' | 'en_cours' | 'terminee';
+
 export interface ProjectPhase {
   id: string;
   name: string;
-  status?: string | null;
-  progress?: number | null;
+  status: PhaseStatus;
+  /** Heures réelles / budget de la phase, en % (null sans budget). */
+  hoursPct: number | null;
+  /** Sous-phases (un seul niveau, comme au portail). */
+  children: ProjectPhase[];
+}
+
+export type DeviceStatus = 'prevu' | 'installe' | 'configure' | 'verifie';
+
+export interface ProjectDevice {
+  id: string;
+  name: string;
+  deviceType: string;
+  zone: string | null;
+  location: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  serialNumber: string | null;
+  macAddress: string | null;
+  ipAddress: string | null;
+  switchName: string | null;
+  switchPort: string | null;
+  firmware: string | null;
+  status: DeviceStatus;
+  installedByName: string | null;
+  notes: string | null;
+}
+
+export interface FieldDeviceInput {
+  id: string;
+  status?: DeviceStatus;
+  serialNumber?: string;
+  macAddress?: string;
+  ipAddress?: string;
+  switchName?: string;
+  switchPort?: string;
+  firmware?: string;
+  notes?: string | null;
 }
 
 export interface ProjectDetail extends ProjectListItem {
+  code: string | null;
+  title: string;
   description?: string | null;
-  phases?: ProjectPhase[];
+  phases: ProjectPhase[];
+  devices: ProjectDevice[];
   budgetAmount?: number | null;
-  spentAmount?: number | null;
   startDate?: string | null;
   endDate?: string | null;
 }
