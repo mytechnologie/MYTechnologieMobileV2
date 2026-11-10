@@ -41,6 +41,7 @@ export function WorkOrderCreateView({
     }
     try {
       const res = await create.mutate({
+        docType: values.docType,
         clientId: values.clientId,
         // omis → le backend assigne le créateur ; sinon la sélection.
         technicianId: values.technicianId ?? undefined,
@@ -52,6 +53,8 @@ export function WorkOrderCreateView({
         problemDescription: values.problemDescription ?? undefined,
         actionsTaken: values.actionsTaken ?? undefined,
         followUp: values.followUp ?? undefined,
+        installRequest: values.installRequest ?? undefined,
+        installDescription: values.installDescription ?? undefined,
       });
       const id = res.workOrder?.id;
       if (id == null) {
@@ -67,7 +70,7 @@ export function WorkOrderCreateView({
 
   return (
     <Screen scroll>
-      <SectionTitle>Nouveau bon de travail</SectionTitle>
+      <SectionTitle>Nouveau bon</SectionTitle>
       <WorkOrderForm
         mode="create"
         elevated

@@ -431,6 +431,8 @@ export interface WorkOrder {
  * `technicianId` omis → le backend assigne le créateur.
  */
 export interface CreateWorkOrderInput {
+  /** Défaut portail : 'bon_travail'. */
+  docType?: 'bon_travail' | 'bon_installation';
   clientId: number;
   technicianId?: number | null;
   serviceType?: string | null;
@@ -441,6 +443,8 @@ export interface CreateWorkOrderInput {
   actionsTaken?: string | null;
   followUp?: string | null;
   materialsInternal?: string | null;
+  installRequest?: string | null;
+  installDescription?: string | null;
 }
 
 /** Réponse de workOrders.create. */

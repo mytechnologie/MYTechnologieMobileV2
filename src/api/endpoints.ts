@@ -317,6 +317,10 @@ export const workOrders = {
       problemDescription: input.problemDescription ? textToHtml(input.problemDescription) : input.problemDescription,
       actionsTaken: input.actionsTaken ? textToHtml(input.actionsTaken) : input.actionsTaken,
       followUp: input.followUp ? textToHtml(input.followUp) : input.followUp,
+      installRequest: input.installRequest ? textToHtml(input.installRequest) : input.installRequest,
+      installDescription: input.installDescription
+        ? textToHtml(input.installDescription)
+        : input.installDescription,
     }),
 
   /**
