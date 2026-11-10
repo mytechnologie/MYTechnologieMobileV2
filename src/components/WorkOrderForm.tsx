@@ -30,7 +30,11 @@ import type {
 } from '../api/types';
 import { colors, radius, spacing, typography } from '../theme';
 
+export type WorkOrderDocType = 'bon_travail' | 'bon_installation';
+
 export interface WorkOrderFormValues {
+  /** Figé à la création : numérotation et champs de contenu différents. */
+  docType: WorkOrderDocType;
   clientId: number | null;
   technicianId: number | null;
   serviceType: string | null;
@@ -41,6 +45,9 @@ export interface WorkOrderFormValues {
   problemDescription: string | null;
   actionsTaken: string | null;
   followUp: string | null;
+  /** Bon d'installation : demande du client et description des travaux. */
+  installRequest: string | null;
+  installDescription: string | null;
 }
 
 /** ApiDate (string | Date | null) → Date | null (pour préremplissage). */
@@ -114,6 +121,10 @@ export function WorkOrderForm({
   const [problem, setProblem] = useState(initial?.problemDescription ?? '');
   const [actions, setActions] = useState(initial?.actionsTaken ?? '');
   const [followUp, setFollowUp] = useState(initial?.followUp ?? '');
+  const [docType, setDocType] = useState<WorkOrderDocType>('bon_travail');
+  const [installRequest, setInstallRequest] = useState('');
+  const [installDescription, setInstallDescription] = useState('');
+  const isInstall = docType === 'bon_installation';
   const [error, setError] = useState<string | null>(null);
 
   const clientOptions = useMemo<PickerOption[]>(
@@ -170,6 +181,7 @@ export function WorkOrderForm({
     const durationMinutes = h > 0 || m > 0 ? Math.floor(h) * 60 + Math.floor(m) : null;
 
     onSubmit({
+      docType,
       clientId,
       technicianId,
       serviceType: serviceType.trim() || null,
@@ -177,9 +189,11 @@ export function WorkOrderForm({
       serviceDate,
       durationMinutes,
       materialsInternal: materials.trim() || null,
-      problemDescription: problem.trim() || null,
-      actionsTaken: actions.trim() || null,
+      problemDescription: isInstall ? null : problem.trim() || null,
+      actionsTaken: isInstall ? null : actions.trim() || null,
       followUp: followUp.trim() || null,
+      installRequest: isInstall ? installRequest.trim() || null : null,
+      installDescription: isInstall ? installDescription.trim() || null : null,
     });
   };
 
@@ -193,6 +207,29 @@ export function WorkOrderForm({
 
   return (
     <View>
+      {mode === 'create' ? (
+        <>
+          <Text style={styles.sectionLabel}>Type de bon</Text>
+          <View style={styles.typeRow}>
+            {(
+              [
+                ['bon_travail', 'Bon de travail'],
+                ['bon_installation', "Bon d'installation"],
+              ] as const
+            ).map(([value, label]) => (
+              <Button
+                key={value}
+                title={label}
+                variant={docType === value ? 'primary' : 'secondary'}
+                fullWidth={false}
+                onPress={() => setDocType(value)}
+                style={styles.typeBtn}
+              />
+            ))}
+          </View>
+        </>
+      ) : null}
+
       {elevated ? (
         <>
           <Text style={styles.sectionLabel}>Informations générales</Text>
@@ -346,22 +383,48 @@ export function WorkOrderForm({
           multiline
           style={styles.multiline}
         />
-        <TextField
-          label="Problème rapporté"
-          value={problem}
-          onChangeText={setProblem}
-          placeholder="Description du problème…"
-          multiline
-          style={styles.multiline}
-        />
-        <TextField
-          label="Actions réalisées"
-          value={actions}
-          onChangeText={setActions}
-          placeholder="Interventions effectuées…"
-          multiline
-          style={styles.multiline}
-        />
+        {isInstall ? (
+          <>
+            <TextField
+              label="Demande d'installation"
+              value={installRequest}
+              onChangeText={setInstallRequest}
+              placeholder="Ce que le client a demandé…"
+              multiline
+              style={styles.multiline}
+            />
+            <TextField
+              label="Description de l'installation"
+              value={installDescription}
+              onChangeText={setInstallDescription}
+              placeholder="Ce qui a été installé…"
+              multiline
+              style={styles.multiline}
+            />
+            <Text style={styles.durationHint}>
+              Les tests effectués se cochent dans le bon, une fois créé.
+            </Text>
+          </>
+        ) : (
+          <>
+            <TextField
+              label="Problème rapporté"
+              value={problem}
+              onChangeText={setProblem}
+              placeholder="Description du problème…"
+              multiline
+              style={styles.multiline}
+            />
+            <TextField
+              label="Actions réalisées"
+              value={actions}
+              onChangeText={setActions}
+              placeholder="Interventions effectuées…"
+              multiline
+              style={styles.multiline}
+            />
+          </>
+        )}
         <TextField
           label="Suivi"
           value={followUp}
@@ -386,7 +449,14 @@ export function WorkOrderForm({
       ) : null}
 
       <Button
-        title={submitLabel ?? (mode === 'create' ? 'Créer le bon de travail' : 'Enregistrer')}
+        title={
+          submitLabel ??
+          (mode === 'create'
+            ? isInstall
+              ? "Créer le bon d'installation"
+              : 'Créer le bon de travail'
+            : 'Enregistrer')
+        }
         onPress={handleSubmit}
         loading={submitting}
       />
@@ -405,6 +475,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   card: { marginBottom: spacing.lg },
+  typeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+  typeBtn: { flex: 1 },
   fieldLabel: {
     fontSize: typography.small,
     fontWeight: typography.weightSemibold,
