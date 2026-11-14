@@ -81,6 +81,8 @@ export default function TabsLayout() {
           ),
         }}
       />
+      {/* Pas un onglet : ouvert depuis l'accueil, même droit que les bons. */}
+      <Tabs.Screen name="customer-orders" options={{ href: null }} />
     </Tabs>
   );
 }

@@ -26,6 +26,11 @@ import type {
   PhaseStatus,
   FieldDeviceInput,
   ClientListItem,
+  CustomerOrder,
+  CustomerOrderLineInput,
+  CustomerOrderListInput,
+  CustomerOrderStatus,
+  CustomerOrderWriteInput,
   UserListItem,
   ServiceTypeItem,
   ScheduleItem,
@@ -350,6 +355,193 @@ export const workOrders = {
   /** Transitions et droits vérifiés par le portail (STATUS_TRANSITIONS). */
   changeStatus: (input: ChangeWorkOrderStatusInput): Promise<{ success: boolean }> =>
     trpc.workOrders.changeStatus.mutate({ id: Number(input.id), status: input.status }),
+};
+
+/* -------------------------- commandes en cours ----------------------------- */
+
+/**
+ * Router tRPC `customerOrders`.
+ * Même client et même en-tête `Authorization: Bearer` que timesheet
+ * (getAuthHeaders dans src/api/client.ts). Ids numériques côté serveur,
+ * chaînes dans l'app. `orderDate` est une date civile `YYYY-MM-DD`
+ * (jamais convertie en UTC). Aucun prix, pas de `position` ni `invoicedAt`.
+ * create / update / setStatus renvoient la commande ; delete renvoie
+ * `{ success: true }`.
+ */
+
+interface CustomerOrderLineRow {
+  id: number | string;
+  description?: string | null;
+  quantity?: number | string | null;
+  qbProductCode?: string | null;
+}
+
+interface CustomerOrderRow {
+  id: number | string;
+  clientId: number | string;
+  clientName?: string | null;
+  orderDate: string | Date;
+  status: string;
+  notes?: string | null;
+  lines?: CustomerOrderLineRow[] | null;
+}
+
+function explainCustomerOrdersError(e: unknown): never {
+  const msg = e instanceof Error ? e.message : '';
+  if (/no procedure found on path/i.test(msg)) {
+    throw new Error(
+      "Les commandes en cours ne sont pas encore disponibles sur le serveur. Réessayez lorsque le service sera déployé.",
+    );
+  }
+  if (e instanceof Error) throw e;
+  throw new Error('Une erreur est survenue.');
+}
+
+function numericId(id: string, label: string): number {
+  if (!/^\d+$/.test(id)) throw new Error(`${label} invalide.`);
+  return Number(id);
+}
+
+/** Date civile YYYY-MM-DD, composantes locales (pas de toISOString / UTC). */
+function orderDateToYmd(value: string | Date): string {
+  if (typeof value === 'string') {
+    const head = /^(\d{4}-\d{2}-\d{2})/.exec(value)?.[1];
+    if (head) return head;
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function quantityInt(value: number | string | null | undefined): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.trunc(n);
+}
+
+function toCustomerOrder(row: CustomerOrderRow): CustomerOrder {
+  const status: CustomerOrderStatus = row.status === 'facture' ? 'facture' : 'a_facturer';
+  return {
+    id: String(row.id),
+    clientId: String(row.clientId),
+    clientName: row.clientName?.trim() || `Client #${row.clientId}`,
+    orderDate: orderDateToYmd(row.orderDate),
+    status,
+    notes: row.notes?.trim() ? row.notes : null,
+    lines: (row.lines ?? []).map((line) => ({
+      id: String(line.id),
+      description: line.description?.trim() ?? '',
+      quantity: quantityInt(line.quantity),
+      qbProductCode: line.qbProductCode?.trim() ? line.qbProductCode.trim() : null,
+    })),
+  };
+}
+
+function customerOrderBody(input: CustomerOrderWriteInput) {
+  return {
+    clientId: numericId(input.clientId, 'Client'),
+    orderDate: input.orderDate,
+    notes: input.notes?.trim() ? input.notes.trim() : null,
+    lines: input.lines.map((line: CustomerOrderLineInput) => {
+      const code = line.qbProductCode?.trim();
+      return {
+        description: line.description.trim(),
+        quantity: line.quantity,
+        ...(code ? { qbProductCode: code } : {}),
+      };
+    }),
+  };
+}
+
+function asCustomerOrder(res: unknown): CustomerOrder {
+  if (!res || typeof res !== 'object' || !('id' in res)) {
+    throw new Error('Réponse inattendue du serveur.');
+  }
+  return toCustomerOrder(res as CustomerOrderRow);
+}
+
+export const customerOrders = {
+  /**
+   * Sans argument : tous les statuts. `status` est omis pour le filtre
+   * « Toutes ». `search` est le texte tel que saisi (le serveur ignore
+   * les accents et cherche client, notes, description et code QuickBooks).
+   */
+  list: async (input?: CustomerOrderListInput): Promise<CustomerOrder[]> => {
+    try {
+      const query: CustomerOrderListInput = {};
+      if (input?.status) query.status = input.status;
+      const search = input?.search?.trim();
+      if (search) query.search = search;
+      const rows: unknown = await trpc.customerOrders.list.query(
+        query.status || query.search ? query : undefined,
+      );
+      if (!Array.isArray(rows)) throw new Error('Réponse inattendue du serveur.');
+      return rows.map((row) => toCustomerOrder(row as CustomerOrderRow));
+    } catch (e) {
+      explainCustomerOrdersError(e);
+    }
+  },
+
+  get: async (id: string): Promise<CustomerOrder> => {
+    try {
+      const row: unknown = await trpc.customerOrders.get.query({ id: numericId(id, 'Commande') });
+      return asCustomerOrder(row);
+    } catch (e) {
+      explainCustomerOrdersError(e);
+    }
+  },
+
+  create: async (input: CustomerOrderWriteInput): Promise<CustomerOrder> => {
+    try {
+      const res: unknown = await trpc.customerOrders.create.mutate(customerOrderBody(input));
+      return asCustomerOrder(res);
+    } catch (e) {
+      explainCustomerOrdersError(e);
+    }
+  },
+
+  update: async (input: CustomerOrderWriteInput & { id: string }): Promise<CustomerOrder> => {
+    try {
+      const { id, ...rest } = input;
+      const res: unknown = await trpc.customerOrders.update.mutate({
+        id: numericId(id, 'Commande'),
+        ...customerOrderBody(rest),
+      });
+      return asCustomerOrder(res);
+    } catch (e) {
+      explainCustomerOrdersError(e);
+    }
+  },
+
+  setStatus: async (input: {
+    id: string;
+    status: CustomerOrderStatus;
+  }): Promise<CustomerOrder> => {
+    try {
+      const res: unknown = await trpc.customerOrders.setStatus.mutate({
+        id: numericId(input.id, 'Commande'),
+        status: input.status,
+      });
+      return asCustomerOrder(res);
+    } catch (e) {
+      explainCustomerOrdersError(e);
+    }
+  },
+
+  delete: async (id: string): Promise<{ success: true }> => {
+    try {
+      const res: unknown = await trpc.customerOrders.delete.mutate({ id: numericId(id, 'Commande') });
+      if (!res || typeof res !== 'object' || (res as { success?: unknown }).success !== true) {
+        throw new Error('Réponse inattendue du serveur.');
+      }
+      return { success: true };
+    } catch (e) {
+      explainCustomerOrdersError(e);
+    }
+  },
 };
 
 /* -------------------------------- timesheet -------------------------------- */

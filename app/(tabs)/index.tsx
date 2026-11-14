@@ -4,6 +4,7 @@
  * Technicien et gestion : « Mes bons aujourd'hui » (bons du jour et bons en
  * route / sur place), ouverts d'un toucher.
  * Admin/manager : projets actifs, bons de travail du jour.
+ * Technicien et gestion : tuile « Commandes en cours » (même accès que les bons).
  */
 import { useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
@@ -56,6 +57,7 @@ export default function HomeScreen() {
   const { user, mode } = useAuth();
   const elevated = !!user && mode === 'token' && isElevated(user);
   const fieldUser = !!user && canAccess('work-orders', user, mode);
+  const canOrders = !!user && canAccess('customer-orders', user, mode);
 
   const [punchKey, setPunchKey] = useState(0);
   const entriesQ = useQuery(() => timesheet.myEntries(), []);
@@ -124,6 +126,22 @@ export default function HomeScreen() {
 
       <View style={styles.body}>
         <PunchCard refreshKey={punchKey} />
+
+        {canOrders ? (
+          <Card
+            style={styles.ordersTile}
+            onPress={() => router.push('/(tabs)/customer-orders')}
+          >
+            <View style={[styles.statIcon, styles.ordersIcon]}>
+              <Ionicons name="clipboard-outline" size={22} color={colors.navy} />
+            </View>
+            <View style={styles.ordersText}>
+              <Text style={styles.ordersTitle}>Commandes en cours</Text>
+              <Text style={styles.ordersSub}>Aide-mémoire des besoins clients</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.navy} />
+          </Card>
+        ) : null}
 
         {approvalGroups.length > 0 ? (
           <View style={styles.myBlock}>
@@ -238,6 +256,16 @@ export default function HomeScreen() {
                 variant="secondary"
                 onPress={() => router.push('/(tabs)/work-orders')}
               />
+              {canOrders ? (
+                <>
+                  <View style={{ height: spacing.sm }} />
+                  <Button
+                    title="Commandes en cours"
+                    variant="secondary"
+                    onPress={() => router.push('/(tabs)/customer-orders')}
+                  />
+                </>
+              ) : null}
             </View>
           </View>
         ) : null}
@@ -283,6 +311,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: spacing.sm,
   },
+  ordersTile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  ordersIcon: { marginBottom: 0, backgroundColor: colors.warningBg },
+  ordersText: { flex: 1 },
+  ordersTitle: {
+    fontSize: typography.body,
+    fontWeight: typography.weightBold,
+    color: colors.text,
+  },
+  ordersSub: { fontSize: typography.small, color: colors.textMuted, marginTop: 2 },
   statValue: {
     fontSize: typography.h1,
     fontWeight: typography.weightBold,

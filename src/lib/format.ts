@@ -2,6 +2,7 @@
  * Formatage des dates et libellés de statut (français).
  */
 import type {
+  CustomerOrderStatus,
   ProjectStatus,
   ProjectTaskStatus,
   TimesheetStatus,
@@ -149,6 +150,66 @@ export const DEVICE_STATUS_OPTIONS = ['prevu', 'installe', 'configure', 'verifie
 
 export function deviceStatusStyle(status: string): StatusStyle {
   return DEVICE_LABELS[status] ?? { label: status, color: colors.textMuted, bg: colors.surfaceAlt };
+}
+
+const ORDER_MONTHS = [
+  'jan',
+  'fév',
+  'mar',
+  'avr',
+  'mai',
+  'juin',
+  'juil',
+  'août',
+  'sept',
+  'oct',
+  'nov',
+  'déc',
+] as const;
+
+/** Date civile d'une commande → « 10 nov 2026 ». */
+export function formatOrderDate(value: string | Date | null | undefined): string {
+  if (!value) return '—';
+  let d: Date;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    const [y, m, day] = value.slice(0, 10).split('-').map(Number);
+    if (!y || !m || !day) return '—';
+    d = new Date(y, m - 1, day);
+  } else {
+    d = value instanceof Date ? value : new Date(value);
+  }
+  if (Number.isNaN(d.getTime())) return '—';
+  const month = ORDER_MONTHS[d.getMonth()] ?? '';
+  return `${d.getDate()} ${month} ${d.getFullYear()}`;
+}
+
+/** Quantité affichée (entier tel quel, sinon au plus 2 décimales). */
+export function formatQuantity(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  return value.toLocaleString('fr-CA', { maximumFractionDigits: 2 });
+}
+
+const CUSTOMER_ORDER_LABELS: Record<CustomerOrderStatus, StatusStyle> = {
+  a_facturer: { label: 'À facturer', color: colors.warning, bg: colors.warningBg },
+  facture: { label: 'Facturé', color: colors.success, bg: colors.successBg },
+};
+
+export function customerOrderStatusStyle(status: CustomerOrderStatus): StatusStyle {
+  return CUSTOMER_ORDER_LABELS[status];
+}
+
+/** Résumé d'une commande : « 6 caméras dôme 4K, 2 contrôleurs d'accès, … ». */
+export function summarizeOrderLines(
+  lines: { quantity: number; description: string }[],
+): string {
+  const parts = lines
+    .map((line) => {
+      const description = line.description.trim();
+      if (!description) return '';
+      return `${formatQuantity(line.quantity)} ${description}`;
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : 'Aucun article';
 }
 
 /** Libellé lisible du rôle. */

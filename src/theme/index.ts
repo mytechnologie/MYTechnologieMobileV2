@@ -4,6 +4,7 @@
  * Accents : navy (#0a1f3d) + gold (#C9A227).
  * Toute couleur / espacement / typo de l'app passe par ce fichier.
  */
+import { Platform } from 'react-native';
 
 export const colors = {
   // Marque
@@ -69,6 +70,8 @@ export const typography = {
   body: 16,
   small: 14,
   tiny: 12,
+  /** Étiquettes de code (QuickBooks). */
+  fontMono: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   // Poids
   weightRegular: '400',
   weightMedium: '500',
