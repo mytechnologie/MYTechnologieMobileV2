@@ -4,9 +4,12 @@
  *
  * - technicien / admin / manager / super_admin → projets et bons ; le portail
  *   filtre ensuite ce que chacun voit (ex. « mes bons » pour un technicien).
- * - Commandes en cours : pas un onglet. Lecture si `work_orders.view_all` ou
- *   `work_orders.view_assigned` ; création / modification / suppression si
- *   `work_orders.create` / `edit` / `delete`. `super_admin` a toujours tout.
+ * - Commandes en cours : pas un onglet. Lecture comme les bons (technicien
+ *   compris) ou codes `work_orders.view_all` / `view_assigned`. Création :
+ *   technicien, rôles élevés, ou `work_orders.create`. Modifier, changer le
+ *   statut et supprimer : rôles élevés seulement (`admin`, `manager`,
+ *   `super_admin`). La réponse API ne dit pas encore qui a créé la commande,
+ *   donc un technicien ne peut pas modifier « la sienne ».
  * - Autre rôle → Accueil + Saisie d'heures uniquement.
  */
 import type { AuthUser } from '../api/types';
@@ -27,18 +30,11 @@ const SECTION_PERMISSIONS: Record<Exclude<Section, 'customer-orders'>, readonly 
   'work-orders': ['workOrders.read', 'workOrders.view', 'workOrders'],
 };
 
-/**
- * Codes portail des bons (server/accessControl.ts). Les commandes en cours
- * passent par ces mêmes codes — pas une copie de la règle de rôle des onglets.
- */
-const CUSTOMER_ORDER_CODES = {
-  read: ['work_orders.view_all', 'work_orders.view_assigned'],
-  create: ['work_orders.create'],
-  edit: ['work_orders.edit'],
-  delete: ['work_orders.delete'],
-} as const;
+/** Lecture explicite. La création technicien est un rôle, pas ce code. */
+const CUSTOMER_ORDER_READ = ['work_orders.view_all', 'work_orders.view_assigned'] as const;
+const CUSTOMER_ORDER_CREATE = ['work_orders.create'] as const;
 
-export type CustomerOrderAction = keyof typeof CUSTOMER_ORDER_CODES;
+export type CustomerOrderAction = 'read' | 'create' | 'edit' | 'delete';
 
 export function isElevated(user: Pick<AuthUser, 'role'>): boolean {
   return (ELEVATED_ROLES as readonly string[]).includes(user.role);
@@ -48,15 +44,32 @@ export function isSuperAdmin(user: Pick<AuthUser, 'role'>): boolean {
   return user.role === 'super_admin';
 }
 
-/** Lecture, création, modification ou suppression d'une commande en cours. */
+/**
+ * Technicien terrain : le rôle de FIELD_ROLES qui n'est pas élevé.
+ * Même découpage que le reste de l'app (bons : isElevated vs le terrain).
+ */
+export function isTechnician(user: Pick<AuthUser, 'role'>): boolean {
+  return (FIELD_ROLES as readonly string[]).includes(user.role) && !isElevated(user);
+}
+
+function hasCode(user: Pick<AuthUser, 'permissions'>, codes: readonly string[]): boolean {
+  const perms = user.permissions ?? [];
+  return codes.some((code) => perms.includes(code));
+}
+
+/**
+ * Lecture, création, modification ou suppression d'une commande en cours.
+ * `edit` couvre Modifier, Marquer facturé et Remettre à facturer.
+ * `delete` couvre Supprimer. Les deux sont réservés aux rôles élevés.
+ */
 export function canCustomerOrder(
   action: CustomerOrderAction,
   user: Pick<AuthUser, 'role' | 'permissions'> | null | undefined,
 ): boolean {
   if (!user) return false;
-  if (isSuperAdmin(user)) return true;
-  const perms = user.permissions ?? [];
-  return CUSTOMER_ORDER_CODES[action].some((code) => perms.includes(code));
+  if (action === 'edit' || action === 'delete') return isElevated(user);
+  if (isElevated(user) || isTechnician(user)) return true;
+  return action === 'create' ? hasCode(user, CUSTOMER_ORDER_CREATE) : hasCode(user, CUSTOMER_ORDER_READ);
 }
 
 export function canAccess(
