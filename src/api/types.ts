@@ -527,3 +527,54 @@ export interface CalendarPerson {
   id: number;
   name: string;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Commandes en cours (aide-mémoire des besoins, sans prix)                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Statut d'une commande client. Aucun montant.
+ * `position` et `invoicedAt` existent en base mais ne font pas partie du contrat.
+ */
+export type CustomerOrderStatus = 'a_facturer' | 'facture';
+
+export interface CustomerOrderLine {
+  id: string;
+  description: string;
+  quantity: number;
+  /** Code produit QuickBooks. Null si le client ne l'a pas indiqué. */
+  qbProductCode: string | null;
+}
+
+/** Élément de customerOrders.list et réponse de customerOrders.get. */
+export interface CustomerOrder {
+  id: string;
+  clientId: string;
+  clientName: string;
+  /** Date civile YYYY-MM-DD, sans heure. */
+  orderDate: string;
+  status: CustomerOrderStatus;
+  notes: string | null;
+  lines: CustomerOrderLine[];
+}
+
+export interface CustomerOrderLineInput {
+  description: string;
+  /** Entier strictement positif. */
+  quantity: number;
+  qbProductCode?: string | null;
+}
+
+/** Corps de customerOrders.create. customerOrders.update reprend les mêmes champs + id. */
+export interface CustomerOrderWriteInput {
+  clientId: string;
+  /** Date civile YYYY-MM-DD, sans heure. */
+  orderDate: string;
+  notes?: string | null;
+  lines: CustomerOrderLineInput[];
+}
+
+export interface CustomerOrderListInput {
+  status?: CustomerOrderStatus;
+  search?: string;
+}

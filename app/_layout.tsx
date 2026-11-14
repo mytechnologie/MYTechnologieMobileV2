@@ -2,6 +2,7 @@
  * Layout racine : providers globaux, gestion du splash, garde d'authentification.
  */
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -12,6 +13,28 @@ import { AuthProvider, useAuth } from '../src/auth/AuthContext';
 import { workOrderIdOf } from '../src/notifications/push';
 
 void SplashScreen.preventAutoHideAsync();
+
+/**
+ * Le module notifications n'existe pas sur le web : le hook plante toute
+ * l'arbre s'il est appelé là. Sur iOS/Android, une notification touchée
+ * (bon assigné, statut changé) ouvre le bon.
+ */
+function OpenWorkOrderFromNotification() {
+  const { initializing, isAuthenticated } = useAuth();
+  const router = useRouter();
+  const lastResponse = Notifications.useLastNotificationResponse();
+
+  useEffect(() => {
+    if (initializing || !isAuthenticated) return;
+    const id = workOrderIdOf(lastResponse ?? null);
+    if (id) {
+      router.push(`/(tabs)/work-orders/${id}`, { withAnchor: true });
+      void Notifications.clearLastNotificationResponseAsync();
+    }
+  }, [lastResponse, initializing, isAuthenticated, router]);
+
+  return null;
+}
 
 function RootNavigator() {
   const { initializing, isAuthenticated } = useAuth();
@@ -29,17 +52,6 @@ function RootNavigator() {
     }
   }, [initializing, isAuthenticated, segments, router]);
 
-  // Notification touchée (bon assigné, statut changé) : ouvre le bon.
-  const lastResponse = Notifications.useLastNotificationResponse();
-  useEffect(() => {
-    if (initializing || !isAuthenticated) return;
-    const id = workOrderIdOf(lastResponse ?? null);
-    if (id) {
-      router.push(`/(tabs)/work-orders/${id}`, { withAnchor: true });
-      void Notifications.clearLastNotificationResponseAsync();
-    }
-  }, [lastResponse, initializing, isAuthenticated, router]);
-
   // Masque le splash dès que la session est restaurée.
   useEffect(() => {
     if (!initializing) void SplashScreen.hideAsync();
@@ -48,11 +60,14 @@ function RootNavigator() {
   if (initializing) return null;
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="index" />
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(tabs)" />
-    </Stack>
+    <>
+      {Platform.OS === 'web' ? null : <OpenWorkOrderFromNotification />}
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+      </Stack>
+    </>
   );
 }
 
