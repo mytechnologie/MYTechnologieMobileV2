@@ -383,11 +383,34 @@ interface CustomerOrderRow {
   orderDate: string | Date;
   status: string;
   notes?: string | null;
+  /** Entier NOT NULL sur le fil, le même id que auth.me.id. */
+  createdBy: number | string;
   lines?: CustomerOrderLineRow[] | null;
 }
 
+/** Message serveur de decisionModification, renvoyé en FORBIDDEN. */
+const UPDATE_FORBIDDEN_MESSAGE =
+  'Vous ne pouvez modifier que vos propres commandes encore à facturer.';
+
+function trpcCode(e: unknown): string | null {
+  if (!e || typeof e !== 'object') return null;
+  const data = (e as { data?: { code?: unknown } }).data;
+  if (typeof data?.code === 'string') return data.code;
+  const shape = (e as { shape?: { data?: { code?: unknown } } }).shape;
+  if (typeof shape?.data?.code === 'string') return shape.data.code;
+  return null;
+}
+
+function trpcMessage(e: unknown): string {
+  if (e instanceof Error) return e.message.trim();
+  if (e && typeof e === 'object' && typeof (e as { message?: unknown }).message === 'string') {
+    return (e as { message: string }).message.trim();
+  }
+  return '';
+}
+
 function explainCustomerOrdersError(e: unknown): never {
-  const msg = e instanceof Error ? e.message : '';
+  const msg = trpcMessage(e);
   if (/no procedure found on path/i.test(msg)) {
     throw new Error(
       "Les commandes en cours ne sont pas encore disponibles sur le serveur. Réessayez lorsque le service sera déployé.",
@@ -395,6 +418,20 @@ function explainCustomerOrdersError(e: unknown): never {
   }
   if (e instanceof Error) throw e;
   throw new Error('Une erreur est survenue.');
+}
+
+/**
+ * update refusé : le texte du serveur, tel quel. Si le client n'a gardé
+ * que le code, on remet la phrase connue.
+ */
+function explainUpdateError(e: unknown): never {
+  if (trpcCode(e) === 'FORBIDDEN') {
+    const msg = trpcMessage(e);
+    if (msg.includes(UPDATE_FORBIDDEN_MESSAGE)) throw new Error(UPDATE_FORBIDDEN_MESSAGE);
+    if (msg && !/^FORBIDDEN$/i.test(msg)) throw new Error(msg);
+    throw new Error(UPDATE_FORBIDDEN_MESSAGE);
+  }
+  explainCustomerOrdersError(e);
 }
 
 function numericId(id: string, label: string): number {
@@ -431,6 +468,7 @@ function toCustomerOrder(row: CustomerOrderRow): CustomerOrder {
     orderDate: orderDateToYmd(row.orderDate),
     status,
     notes: row.notes?.trim() ? row.notes : null,
+    createdBy: row.createdBy == null ? '' : String(row.createdBy),
     lines: (row.lines ?? []).map((line) => ({
       id: String(line.id),
       description: line.description?.trim() ?? '',
@@ -440,6 +478,7 @@ function toCustomerOrder(row: CustomerOrderRow): CustomerOrder {
   };
 }
 
+/** create / update. Pas de champ status : setStatus s'en charge. */
 function customerOrderBody(input: CustomerOrderWriteInput) {
   return {
     clientId: numericId(input.clientId, 'Client'),
@@ -512,7 +551,7 @@ export const customerOrders = {
       });
       return asCustomerOrder(res);
     } catch (e) {
-      explainCustomerOrdersError(e);
+      explainUpdateError(e);
     }
   },
 

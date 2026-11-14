@@ -4,15 +4,14 @@
  *
  * - technicien / admin / manager / super_admin → projets et bons ; le portail
  *   filtre ensuite ce que chacun voit (ex. « mes bons » pour un technicien).
- * - Commandes en cours : pas un onglet. Lecture comme les bons (technicien
- *   compris) ou codes `work_orders.view_all` / `view_assigned`. Création :
- *   technicien, rôles élevés, ou `work_orders.create`. Modifier, changer le
- *   statut et supprimer : rôles élevés seulement (`admin`, `manager`,
- *   `super_admin`). La réponse API ne dit pas encore qui a créé la commande,
- *   donc un technicien ne peut pas modifier « la sienne ».
+ * - Commandes en cours : pas un onglet. Les boutons suivent les codes
+ *   `auth.me.permissions`, et `super_admin` passe toujours (comme le serveur).
+ *   Lecture et création : `work_orders.view_all` ou `view_assigned`.
+ *   Modifier une commande : `canUpdateCustomerOrder`. Statut : `work_orders.edit`.
+ *   Suppression : `work_orders.delete`.
  * - Autre rôle → Accueil + Saisie d'heures uniquement.
  */
-import type { AuthUser } from '../api/types';
+import type { AuthUser, CustomerOrder } from '../api/types';
 
 export type Section = 'home' | 'projects' | 'work-orders' | 'customer-orders' | 'timesheet';
 
@@ -30,11 +29,13 @@ const SECTION_PERMISSIONS: Record<Exclude<Section, 'customer-orders'>, readonly 
   'work-orders': ['workOrders.read', 'workOrders.view', 'workOrders'],
 };
 
-/** Lecture explicite. La création technicien est un rôle, pas ce code. */
-const CUSTOMER_ORDER_READ = ['work_orders.view_all', 'work_orders.view_assigned'] as const;
-const CUSTOMER_ORDER_CREATE = ['work_orders.create'] as const;
+/** list, get et create : l'un ou l'autre. `work_orders.create` ne crée pas. */
+const CUSTOMER_ORDER_VIEW = ['work_orders.view_all', 'work_orders.view_assigned'] as const;
+/** setStatus, et update de n'importe quelle commande. */
+const CUSTOMER_ORDER_EDIT = ['work_orders.edit'] as const;
+const CUSTOMER_ORDER_DELETE = ['work_orders.delete'] as const;
 
-export type CustomerOrderAction = 'read' | 'create' | 'edit' | 'delete';
+export type CustomerOrderAction = 'read' | 'create' | 'setStatus' | 'delete';
 
 export function isElevated(user: Pick<AuthUser, 'role'>): boolean {
   return (ELEVATED_ROLES as readonly string[]).includes(user.role);
@@ -58,18 +59,45 @@ function hasCode(user: Pick<AuthUser, 'permissions'>, codes: readonly string[]):
 }
 
 /**
- * Lecture, création, modification ou suppression d'une commande en cours.
- * `edit` couvre Modifier, Marquer facturé et Remettre à facturer.
- * `delete` couvre Supprimer. Les deux sont réservés aux rôles élevés.
+ * Lecture, création, changement de statut ou suppression d'une commande.
+ * `setStatus` couvre Marquer facturé et Remettre à facturer.
+ * La modification du contenu est `canUpdateCustomerOrder` : elle dépend
+ * de la commande (auteur + statut), pas seulement du rôle.
  */
 export function canCustomerOrder(
   action: CustomerOrderAction,
   user: Pick<AuthUser, 'role' | 'permissions'> | null | undefined,
 ): boolean {
   if (!user) return false;
-  if (action === 'edit' || action === 'delete') return isElevated(user);
-  if (isElevated(user) || isTechnician(user)) return true;
-  return action === 'create' ? hasCode(user, CUSTOMER_ORDER_CREATE) : hasCode(user, CUSTOMER_ORDER_READ);
+  if (isSuperAdmin(user)) return true;
+  if (action === 'read' || action === 'create') return hasCode(user, CUSTOMER_ORDER_VIEW);
+  if (action === 'setStatus') return hasCode(user, CUSTOMER_ORDER_EDIT);
+  return hasCode(user, CUSTOMER_ORDER_DELETE);
+}
+
+/**
+ * Même identifiant, que l'un soit le nombre du fil et l'autre la chaîne
+ * de session (`String(me.id)`).
+ */
+function sameUserId(a: string | number, b: string | number): boolean {
+  const left = String(a).trim();
+  const right = String(b).trim();
+  if (!left || !right) return false;
+  return left === right;
+}
+
+/**
+ * update : `work_orders.edit` (ou super_admin) sur n'importe quelle commande.
+ * Sans ce droit : seulement si `createdBy` est l'utilisateur courant et que
+ * le statut est encore `a_facturer`.
+ */
+export function canUpdateCustomerOrder(
+  user: Pick<AuthUser, 'id' | 'role' | 'permissions'> | null | undefined,
+  order: Pick<CustomerOrder, 'createdBy' | 'status'>,
+): boolean {
+  if (!user) return false;
+  if (isSuperAdmin(user) || hasCode(user, CUSTOMER_ORDER_EDIT)) return true;
+  return order.status === 'a_facturer' && sameUserId(order.createdBy, user.id);
 }
 
 export function canAccess(

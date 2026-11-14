@@ -11,7 +11,7 @@ import { ErrorState, LoadingState } from '../../../src/components/States';
 import { customerOrders } from '../../../src/api/endpoints';
 import { useMutation, useQuery } from '../../../src/api/useApi';
 import { useAuth } from '../../../src/auth/AuthContext';
-import { canCustomerOrder } from '../../../src/auth/access';
+import { canCustomerOrder, canUpdateCustomerOrder } from '../../../src/auth/access';
 import type { CustomerOrder, CustomerOrderStatus } from '../../../src/api/types';
 import {
   customerOrderStatusStyle,
@@ -25,7 +25,7 @@ export default function CustomerOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const orderId = String(id ?? '');
   const { user } = useAuth();
-  const canEdit = canCustomerOrder('edit', user);
+  const canSetStatus = canCustomerOrder('setStatus', user);
   const canDelete = canCustomerOrder('delete', user);
   const q = useQuery(() => customerOrders.get(orderId), [orderId]);
   const setStatus = useMutation(customerOrders.setStatus);
@@ -91,9 +91,9 @@ export default function CustomerOrderDetailScreen() {
           refreshing={q.refreshing}
           onRefresh={q.refetch}
           statusLoading={setStatus.loading}
-          onStatus={canEdit ? changeStatus : undefined}
+          onStatus={canSetStatus ? changeStatus : undefined}
           onEdit={
-            canEdit
+            canUpdateCustomerOrder(user, order)
               ? () =>
                   router.push({
                     pathname: '/(tabs)/customer-orders/new',
