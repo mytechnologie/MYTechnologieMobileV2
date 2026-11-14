@@ -363,8 +363,9 @@ export const workOrders = {
  * Router tRPC `customerOrders`.
  * Même client et même en-tête `Authorization: Bearer` que timesheet
  * (getAuthHeaders dans src/api/client.ts). Ids numériques côté serveur,
- * chaînes dans l'app. `orderDate` est une date civile `YYYY-MM-DD`
- * (jamais convertie en UTC). Aucun prix, pas de `position` ni `invoicedAt`.
+ * chaînes dans l'app. `orderDate` est une date civile `YYYY-MM-DD` :
+ * le préfixe d'une chaîne est gardé tel quel, un Date se lit en UTC.
+ * Aucun prix, pas de `position` ni `invoicedAt`.
  * create / update / setStatus renvoient la commande ; delete renvoie
  * `{ success: true }`.
  */
@@ -402,7 +403,11 @@ function numericId(id: string, label: string): number {
   return Number(id);
 }
 
-/** Date civile YYYY-MM-DD, composantes locales (pas de toISOString / UTC). */
+/**
+ * Date civile YYYY-MM-DD. Une chaîne garde son préfixe (pas de fuseau).
+ * Un Date (superjson, minuit UTC comme les dates seules du portail) se lit
+ * en UTC : à l'ouest de Greenwich, getDate() reculerait d'un jour.
+ */
 function orderDateToYmd(value: string | Date): string {
   if (typeof value === 'string') {
     const head = /^(\d{4}-\d{2}-\d{2})/.exec(value)?.[1];
@@ -410,9 +415,9 @@ function orderDateToYmd(value: string | Date): string {
   }
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return '';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
