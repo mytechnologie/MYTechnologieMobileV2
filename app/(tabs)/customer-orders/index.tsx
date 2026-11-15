@@ -1,8 +1,8 @@
 /**
  * Liste des commandes en cours.
- * La recherche part au serveur (client, notes, description, code QuickBooks),
- * avec un court délai. « Toutes » n'envoie pas de statut : list() sans filtre
- * de statut renvoie les deux. Les autres puces envoient status.
+ * La recherche part au serveur (client, notes, description, code QuickBooks,
+ * numéro de facture), avec un court délai. « Toutes » n'envoie pas de statut.
+ * Les autres puces envoient l'un des quatre statuts.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -14,8 +14,13 @@ import { customerOrders } from '../../../src/api/endpoints';
 import { useQuery } from '../../../src/api/useApi';
 import { useAuth } from '../../../src/auth/AuthContext';
 import { canCustomerOrder } from '../../../src/auth/access';
-import type { CustomerOrder, CustomerOrderStatus } from '../../../src/api/types';
 import {
+  CUSTOMER_ORDER_STATUSES,
+  type CustomerOrder,
+  type CustomerOrderStatus,
+} from '../../../src/api/types';
+import {
+  countCustomerOrdersByStatus,
   customerOrderStatusStyle,
   formatOrderDate,
   summarizeOrderLines,
@@ -61,6 +66,9 @@ function OrderCard({ item, onPress }: { item: CustomerOrder; onPress: () => void
         {summarizeOrderLines(item.lines)}
       </Text>
       <Text style={styles.date}>{formatOrderDate(item.orderDate)}</Text>
+      {item.status === 'facture' && item.invoiceNumber ? (
+        <Text style={styles.invoice}>Facture {item.invoiceNumber}</Text>
+      ) : null}
     </Card>
   );
 }
@@ -71,7 +79,7 @@ export default function CustomerOrdersScreen() {
   const canCreate = canCustomerOrder('create', user);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<Filter>('a_facturer');
+  const [filter, setFilter] = useState<Filter>('all');
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(searchInput.trim()), SEARCH_DELAY_MS);
@@ -80,16 +88,15 @@ export default function CustomerOrdersScreen() {
 
   const { data, loading, error, refetch, refreshing } = useQuery(async () => {
     const searchArg = search || undefined;
-    // Comptes des deux statuts : un appel sans status (tous).
+    // Comptes des quatre statuts : un appel sans status (toutes).
     const all = await customerOrders.list(searchArg ? { search: searchArg } : undefined);
-    const pending = all.filter((order) => order.status === 'a_facturer').length;
-    const billed = all.filter((order) => order.status === 'facture').length;
-    if (filter === 'all') return { rows: all, pending, billed };
+    const counts = countCustomerOrdersByStatus(all);
+    if (filter === 'all') return { rows: all, counts };
     const rows = await customerOrders.list({
       status: filter,
       ...(searchArg ? { search: searchArg } : {}),
     });
-    return { rows, pending, billed };
+    return { rows, counts };
   }, [filter, search]);
 
   useFocusEffect(
@@ -99,34 +106,67 @@ export default function CustomerOrdersScreen() {
   );
 
   const visible = data?.rows ?? [];
-  const pendingCount = data?.pending ?? 0;
-  const billedCount = data?.billed ?? 0;
-
-  const emptyCopy = () => {
-    if (search) {
-      return {
-        title: 'Aucun résultat',
-        message: 'Aucune commande ne correspond à la recherche.',
-      };
-    }
-    if (filter === 'a_facturer') {
-      return {
-        title: 'Rien à facturer',
-        message: 'Aucune commande en attente de facturation.',
-      };
-    }
-    if (filter === 'facture') {
-      return {
-        title: 'Aucune commande facturée',
-        message: 'Les commandes marquées facturées apparaîtront ici.',
-      };
-    }
-    return {
-      title: 'Aucune commande',
-      message: 'Les besoins des clients apparaîtront ici.',
-    };
+  const counts = data?.counts ?? {
+    nouveau: 0,
+    envoye: 0,
+    a_facturer: 0,
+    facture: 0,
   };
 
+  return (
+    <CustomerOrdersList
+      searchInput={searchInput}
+      onSearch={setSearchInput}
+      filter={filter}
+      onFilter={setFilter}
+      counts={counts}
+      rows={visible}
+      loading={loading && !data}
+      errorMessage={error?.message ?? null}
+      refreshing={refreshing}
+      onRefresh={refetch}
+      onRetry={refetch}
+      search={search}
+      canCreate={canCreate}
+      onCreate={() => router.push('/(tabs)/customer-orders/new')}
+      onOpen={(id) => router.push(`/(tabs)/customer-orders/${id}`)}
+    />
+  );
+}
+
+function CustomerOrdersList({
+  searchInput,
+  onSearch,
+  filter,
+  onFilter,
+  counts,
+  rows,
+  loading,
+  errorMessage,
+  refreshing,
+  onRefresh,
+  onRetry,
+  search,
+  canCreate,
+  onCreate,
+  onOpen,
+}: {
+  searchInput: string;
+  onSearch: (value: string) => void;
+  filter: Filter;
+  onFilter: (filter: Filter) => void;
+  counts: Record<CustomerOrderStatus, number>;
+  rows: CustomerOrder[];
+  loading: boolean;
+  errorMessage: string | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+  onRetry: () => void;
+  search: string;
+  canCreate: boolean;
+  onCreate: () => void;
+  onOpen: (id: string) => void;
+}) {
   return (
     <View style={styles.screen}>
       <View style={styles.toolbar}>
@@ -134,52 +174,54 @@ export default function CustomerOrdersScreen() {
           <Ionicons name="search" size={18} color={colors.textMuted} />
           <TextInput
             value={searchInput}
-            onChangeText={setSearchInput}
-            placeholder="Rechercher un client ou un besoin…"
+            onChangeText={onSearch}
+            placeholder="Client, besoin ou n° de facture…"
             placeholderTextColor={colors.disabled}
             style={styles.searchInput}
             autoCorrect={false}
             autoCapitalize="none"
             clearButtonMode="while-editing"
-            accessibilityLabel="Rechercher un client ou un besoin"
+            accessibilityLabel="Rechercher un client, un besoin ou un numéro de facture"
           />
         </View>
         <View style={styles.chips}>
-          <Chip
-            label={`À facturer · ${pendingCount}`}
-            selected={filter === 'a_facturer'}
-            onPress={() => setFilter('a_facturer')}
-          />
-          <Chip
-            label={`Facturé · ${billedCount}`}
-            selected={filter === 'facture'}
-            onPress={() => setFilter('facture')}
-          />
-          <Chip label="Toutes" selected={filter === 'all'} onPress={() => setFilter('all')} />
+          {CUSTOMER_ORDER_STATUSES.map((status) => {
+            const label = customerOrderStatusStyle(status).label;
+            return (
+              <Chip
+                key={status}
+                label={`${label} · ${counts[status]}`}
+                selected={filter === status}
+                onPress={() => onFilter(status)}
+              />
+            );
+          })}
+          <Chip label="Toutes" selected={filter === 'all'} onPress={() => onFilter('all')} />
         </View>
       </View>
 
       <View style={styles.listWrap}>
-        {loading && !data ? (
+        {loading ? (
           <LoadingState label="Chargement des commandes…" />
-        ) : error ? (
-          <ErrorState message={error.message} onRetry={refetch} />
+        ) : errorMessage ? (
+          <ErrorState message={errorMessage} onRetry={onRetry} />
         ) : (
           <FlatList
-            data={visible}
+            data={rows}
             keyExtractor={(order) => order.id}
-            contentContainerStyle={[styles.list, visible.length === 0 && styles.listEmpty]}
-            onRefresh={refetch}
+            contentContainerStyle={[styles.list, rows.length === 0 && styles.listEmpty]}
+            onRefresh={onRefresh}
             refreshing={refreshing}
             keyboardShouldPersistTaps="handled"
             renderItem={({ item }) => (
-              <OrderCard
-                item={item}
-                onPress={() => router.push(`/(tabs)/customer-orders/${item.id}`)}
-              />
+              <OrderCard item={item} onPress={() => onOpen(item.id)} />
             )}
             ListEmptyComponent={
-              <EmptyState icon="clipboard-outline" title={emptyCopy().title} message={emptyCopy().message} />
+              <EmptyState
+                icon="clipboard-outline"
+                title={emptyCopy(filter, search).title}
+                message={emptyCopy(filter, search).message}
+              />
             }
           />
         )}
@@ -189,12 +231,49 @@ export default function CustomerOrdersScreen() {
         <View style={styles.footer}>
           <Button
             title="+ Nouvelle commande"
-            onPress={() => router.push('/(tabs)/customer-orders/new')}
+            onPress={onCreate}
           />
         </View>
       ) : null}
     </View>
   );
+}
+
+function emptyCopy(filter: Filter, search: string) {
+  if (search) {
+    return {
+      title: 'Aucun résultat',
+      message: 'Aucune commande ne correspond à la recherche.',
+    };
+  }
+  if (filter === 'nouveau') {
+    return {
+      title: 'Aucune commande nouvelle',
+      message: 'Les commandes qui viennent d’être créées apparaîtront ici.',
+    };
+  }
+  if (filter === 'envoye') {
+    return {
+      title: 'Aucune commande envoyée',
+      message: 'Les commandes envoyées apparaîtront ici.',
+    };
+  }
+  if (filter === 'a_facturer') {
+    return {
+      title: 'Rien à facturer',
+      message: 'Aucune commande en attente de facturation.',
+    };
+  }
+  if (filter === 'facture') {
+    return {
+      title: 'Aucune commande facturée',
+      message: 'Les commandes marquées facturées apparaîtront ici.',
+    };
+  }
+  return {
+    title: 'Aucune commande',
+    message: 'Les besoins des clients apparaîtront ici.',
+  };
 }
 
 const styles = StyleSheet.create({
@@ -256,6 +335,11 @@ const styles = StyleSheet.create({
   },
   summary: { fontSize: typography.small, color: colors.text, lineHeight: 20 },
   date: { fontSize: typography.small, color: colors.textMuted },
+  invoice: {
+    fontSize: typography.small,
+    fontWeight: typography.weightSemibold,
+    color: colors.success,
+  },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,

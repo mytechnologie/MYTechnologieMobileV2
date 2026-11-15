@@ -55,11 +55,11 @@ export default function NewCustomerOrderScreen() {
     () => (orderId ? customerOrders.get(orderId) : Promise.resolve(null)),
     [orderId],
   );
-  // setStatus et l'update « toute commande » partagent work_orders.edit.
-  const canEditAny = canCustomerOrder('setStatus', user);
+  // work_orders.edit : toute commande. Sans ce droit : l'auteur, seulement
+  // tant que le statut est `nouveau` (canUpdateCustomerOrder).
   const existing = existingQ.data;
   const allowed = editing
-    ? canEditAny || (!!existing && canUpdateCustomerOrder(user, existing))
+    ? !!existing && canUpdateCustomerOrder(user, existing)
     : canCustomerOrder('create', user);
   const waitingForOrder = editing && !existing && !existingQ.error;
   const create = useMutation(customerOrders.create);

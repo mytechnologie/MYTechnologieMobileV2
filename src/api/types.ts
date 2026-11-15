@@ -533,10 +533,19 @@ export interface CalendarPerson {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Statut d'une commande client. Aucun montant.
- * `position` et `invoicedAt` existent en base mais ne font pas partie du contrat.
+ * Statut d'une commande client, dans l'ordre du parcours.
+ * Libellés : Nouveau, Envoyé, À facturer, Facturé.
+ * Aucun montant. `position` et `invoicedAt` existent en base mais ne
+ * font pas partie du contrat.
  */
-export type CustomerOrderStatus = 'a_facturer' | 'facture';
+export const CUSTOMER_ORDER_STATUSES = [
+  'nouveau',
+  'envoye',
+  'a_facturer',
+  'facture',
+] as const;
+
+export type CustomerOrderStatus = (typeof CUSTOMER_ORDER_STATUSES)[number];
 
 export interface CustomerOrderLine {
   id: string;
@@ -558,6 +567,16 @@ export interface CustomerOrder {
   orderDate: string;
   status: CustomerOrderStatus;
   notes: string | null;
+  /**
+   * DocNumber QuickBooks, ou le numéro saisi à la main.
+   * Null tant qu'aucune facture n'est liée.
+   */
+  invoiceNumber: string | null;
+  /**
+   * Id QuickBooks de la facture. Null si le numéro est manuel,
+   * ou s'il n'y a pas de lien.
+   */
+  qbInvoiceId: string | null;
   /**
    * Auteur. Sur le fil : `createdBy: number`, entier NOT NULL, le même id
    * que `auth.me.id`. L'app le garde en chaîne, comme `AuthUser.id`.
@@ -588,4 +607,16 @@ export interface CustomerOrderWriteInput {
 export interface CustomerOrderListInput {
   status?: CustomerOrderStatus;
   search?: string;
+}
+
+/**
+ * Corps de customerOrders.setInvoice. `work_orders.edit` seulement,
+ * et seulement si le statut courant est `facture`.
+ * Chaîne vide : le lien est retiré (`invoiceNumber` et `qbInvoiceId` à null).
+ * `qbInvoiceId` reste null quand le numéro est saisi à la main.
+ */
+export interface CustomerOrderSetInvoiceInput {
+  id: string;
+  invoiceNumber: string;
+  qbInvoiceId?: string | null;
 }
