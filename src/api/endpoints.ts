@@ -16,6 +16,7 @@ import { trpc } from './client';
 import { API_BASE } from './config';
 import { getAuthHeaders } from '../auth/session';
 import { htmlToText, textToHtml } from '../lib/richtext';
+import { CUSTOMER_ORDER_STATUSES } from './types';
 import type {
   ChangeWorkOrderStatusInput,
   CreateTimesheetEntryInput,
@@ -29,6 +30,7 @@ import type {
   CustomerOrder,
   CustomerOrderLineInput,
   CustomerOrderListInput,
+  CustomerOrderSetInvoiceInput,
   CustomerOrderStatus,
   CustomerOrderWriteInput,
   UserListItem,
@@ -365,8 +367,10 @@ export const workOrders = {
  * (getAuthHeaders dans src/api/client.ts). Ids numériques côté serveur,
  * chaînes dans l'app. `orderDate` est une date civile `YYYY-MM-DD`
  * (jamais convertie en UTC). Aucun prix, pas de `position` ni `invoicedAt`.
- * create / update / setStatus renvoient la commande ; delete renvoie
- * `{ success: true }`.
+ * create / update / setStatus / setInvoice renvoient la commande ; delete
+ * renvoie `{ success: true }`. create enregistre le statut `nouveau`.
+ * setStatus accepte les quatre statuts, sans graphe de transition.
+ * setInvoice exige le statut `facture` et `work_orders.edit`.
  */
 
 interface CustomerOrderLineRow {
@@ -383,14 +387,20 @@ interface CustomerOrderRow {
   orderDate: string | Date;
   status: string;
   notes?: string | null;
+  invoiceNumber?: string | null;
+  qbInvoiceId?: string | null;
   /** Entier NOT NULL sur le fil, le même id que auth.me.id. */
   createdBy: number | string;
   lines?: CustomerOrderLineRow[] | null;
 }
 
-/** Message serveur de decisionModification, renvoyé en FORBIDDEN. */
-const UPDATE_FORBIDDEN_MESSAGE =
-  'Vous ne pouvez modifier que vos propres commandes encore à facturer.';
+/**
+ * Repli si le serveur renvoie FORBIDDEN sans texte. La phrase courante
+ * (PR portail #69, `MESSAGE_MODIFICATION_REFUSEE`) est affichée telle
+ * quelle dès qu'elle est présente dans l'erreur.
+ */
+const UPDATE_FORBIDDEN_FALLBACK =
+  'Vous ne pouvez modifier que vos propres commandes encore au statut Nouveau.';
 
 function trpcCode(e: unknown): string | null {
   if (!e || typeof e !== 'object') return null;
@@ -425,11 +435,21 @@ function explainCustomerOrdersError(e: unknown): never {
  * que le code, on remet la phrase connue.
  */
 function explainUpdateError(e: unknown): never {
-  if (trpcCode(e) === 'FORBIDDEN') {
+  const code = trpcCode(e);
+  if (code === 'FORBIDDEN' || code === 'BAD_REQUEST') {
     const msg = trpcMessage(e);
-    if (msg.includes(UPDATE_FORBIDDEN_MESSAGE)) throw new Error(UPDATE_FORBIDDEN_MESSAGE);
-    if (msg && !/^FORBIDDEN$/i.test(msg)) throw new Error(msg);
-    throw new Error(UPDATE_FORBIDDEN_MESSAGE);
+    if (msg && !/^(FORBIDDEN|BAD_REQUEST)$/i.test(msg)) throw new Error(msg);
+    if (code === 'FORBIDDEN') throw new Error(UPDATE_FORBIDDEN_FALLBACK);
+  }
+  explainCustomerOrdersError(e);
+}
+
+/** setStatus / setInvoice : le texte FORBIDDEN ou BAD_REQUEST, tel quel. */
+function explainStatusOrInvoiceError(e: unknown): never {
+  const code = trpcCode(e);
+  if (code === 'FORBIDDEN' || code === 'BAD_REQUEST') {
+    const msg = trpcMessage(e);
+    if (msg && !/^(FORBIDDEN|BAD_REQUEST)$/i.test(msg)) throw new Error(msg);
   }
   explainCustomerOrdersError(e);
 }
@@ -459,15 +479,28 @@ function quantityInt(value: number | string | null | undefined): number {
   return Math.trunc(n);
 }
 
+function customerOrderStatus(value: string): CustomerOrderStatus {
+  if ((CUSTOMER_ORDER_STATUSES as readonly string[]).includes(value)) {
+    return value as CustomerOrderStatus;
+  }
+  throw new Error(`Statut de commande inconnu : ${value}`);
+}
+
+function nullableText(value: string | null | undefined): string | null {
+  const text = value?.trim();
+  return text ? text : null;
+}
+
 function toCustomerOrder(row: CustomerOrderRow): CustomerOrder {
-  const status: CustomerOrderStatus = row.status === 'facture' ? 'facture' : 'a_facturer';
   return {
     id: String(row.id),
     clientId: String(row.clientId),
     clientName: row.clientName?.trim() || `Client #${row.clientId}`,
     orderDate: orderDateToYmd(row.orderDate),
-    status,
+    status: customerOrderStatus(row.status),
     notes: row.notes?.trim() ? row.notes : null,
+    invoiceNumber: nullableText(row.invoiceNumber),
+    qbInvoiceId: nullableText(row.qbInvoiceId),
     createdBy: row.createdBy == null ? '' : String(row.createdBy),
     lines: (row.lines ?? []).map((line) => ({
       id: String(line.id),
@@ -506,7 +539,8 @@ export const customerOrders = {
   /**
    * Sans argument : tous les statuts. `status` est omis pour le filtre
    * « Toutes ». `search` est le texte tel que saisi (le serveur ignore
-   * les accents et cherche client, notes, description et code QuickBooks).
+   * les accents et cherche client, notes, description, code QuickBooks
+   * et numéro de facture).
    */
   list: async (input?: CustomerOrderListInput): Promise<CustomerOrder[]> => {
     try {
@@ -566,7 +600,26 @@ export const customerOrders = {
       });
       return asCustomerOrder(res);
     } catch (e) {
-      explainCustomerOrdersError(e);
+      explainStatusOrInvoiceError(e);
+    }
+  },
+
+  /**
+   * Numéro de facture. Réservé à `work_orders.edit`, et seulement si
+   * la commande est `facture`. `invoiceNumber` vide retire le lien.
+   * `qbInvoiceId` null : numéro saisi à la main, sans appel QuickBooks.
+   */
+  setInvoice: async (input: CustomerOrderSetInvoiceInput): Promise<CustomerOrder> => {
+    try {
+      const qbInvoiceId = input.qbInvoiceId?.trim() ? input.qbInvoiceId.trim() : null;
+      const res: unknown = await trpc.customerOrders.setInvoice.mutate({
+        id: numericId(input.id, 'Commande'),
+        invoiceNumber: input.invoiceNumber.trim(),
+        qbInvoiceId,
+      });
+      return asCustomerOrder(res);
+    } catch (e) {
+      explainStatusOrInvoiceError(e);
     }
   },
 

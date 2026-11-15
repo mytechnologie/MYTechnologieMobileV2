@@ -1,12 +1,13 @@
 /**
  * Formatage des dates et libellés de statut (français).
  */
-import type {
-  CustomerOrderStatus,
-  ProjectStatus,
-  ProjectTaskStatus,
-  TimesheetStatus,
-  WorkOrderStatus,
+import {
+  CUSTOMER_ORDER_STATUSES,
+  type CustomerOrderStatus,
+  type ProjectStatus,
+  type ProjectTaskStatus,
+  type TimesheetStatus,
+  type WorkOrderStatus,
 } from '../api/types';
 import { colors } from '../theme';
 
@@ -189,13 +190,69 @@ export function formatQuantity(value: number): string {
   return value.toLocaleString('fr-CA', { maximumFractionDigits: 2 });
 }
 
+/**
+ * Libellés du portail (`CUSTOMER_ORDER_STATUS_LABELS`).
+ * Une couleur du thème par statut.
+ */
 const CUSTOMER_ORDER_LABELS: Record<CustomerOrderStatus, StatusStyle> = {
+  nouveau: { label: 'Nouveau', color: colors.info, bg: colors.infoBg },
+  envoye: { label: 'Envoyé', color: colors.navy, bg: colors.surfaceAlt },
   a_facturer: { label: 'À facturer', color: colors.warning, bg: colors.warningBg },
   facture: { label: 'Facturé', color: colors.success, bg: colors.successBg },
 };
 
 export function customerOrderStatusStyle(status: CustomerOrderStatus): StatusStyle {
   return CUSTOMER_ORDER_LABELS[status];
+}
+
+export interface CustomerOrderTransition {
+  status: CustomerOrderStatus;
+  /** « Passer à … » pour l'étape suivante et les sauts ; « Revenir à … » pour un retour. */
+  title: string;
+  /** L'étape suivante du parcours (nouveau → envoyé → à facturer → facturé). */
+  primary: boolean;
+}
+
+/**
+ * setStatus accepte n'importe lequel des quatre statuts : pas de graphe.
+ * Le bouton principal est l'étape suivante ; les autres couvrent les sauts
+ * et les retours, que le serveur accepte aussi.
+ */
+export function customerOrderTransitions(status: CustomerOrderStatus): CustomerOrderTransition[] {
+  const index = CUSTOMER_ORDER_STATUSES.indexOf(status);
+  if (index < 0) return [];
+  const next = CUSTOMER_ORDER_STATUSES[index + 1];
+  const later = CUSTOMER_ORDER_STATUSES.slice(index + 2);
+  const earlier = CUSTOMER_ORDER_STATUSES.slice(0, index).reverse();
+  const button = (
+    target: CustomerOrderStatus,
+    kind: 'next' | 'skip' | 'revert',
+  ): CustomerOrderTransition => {
+    const label = CUSTOMER_ORDER_LABELS[target].label;
+    return {
+      status: target,
+      title: kind === 'revert' ? `Revenir à ${label}` : `Passer à ${label}`,
+      primary: kind === 'next',
+    };
+  };
+  return [
+    ...(next ? [button(next, 'next')] : []),
+    ...later.map((target) => button(target, 'skip')),
+    ...earlier.map((target) => button(target, 'revert')),
+  ];
+}
+
+export function countCustomerOrdersByStatus(
+  orders: readonly { status: CustomerOrderStatus }[],
+): Record<CustomerOrderStatus, number> {
+  const counts: Record<CustomerOrderStatus, number> = {
+    nouveau: 0,
+    envoye: 0,
+    a_facturer: 0,
+    facture: 0,
+  };
+  for (const order of orders) counts[order.status] += 1;
+  return counts;
 }
 
 /** Résumé d'une commande : « 6 caméras dôme 4K, 2 contrôleurs d'accès, … ». */

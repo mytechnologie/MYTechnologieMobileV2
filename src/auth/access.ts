@@ -7,8 +7,8 @@
  * - Commandes en cours : pas un onglet. Les boutons suivent les codes
  *   `auth.me.permissions`, et `super_admin` passe toujours (comme le serveur).
  *   Lecture et création : `work_orders.view_all` ou `view_assigned`.
- *   Modifier une commande : `canUpdateCustomerOrder`. Statut : `work_orders.edit`.
- *   Suppression : `work_orders.delete`.
+ *   Modifier une commande : `canUpdateCustomerOrder`. Statut et facture :
+ *   `work_orders.edit`. Suppression : `work_orders.delete`.
  * - Autre rôle → Accueil + Saisie d'heures uniquement.
  */
 import type { AuthUser, CustomerOrder } from '../api/types';
@@ -31,11 +31,11 @@ const SECTION_PERMISSIONS: Record<Exclude<Section, 'customer-orders'>, readonly 
 
 /** list, get et create : l'un ou l'autre. `work_orders.create` ne crée pas. */
 const CUSTOMER_ORDER_VIEW = ['work_orders.view_all', 'work_orders.view_assigned'] as const;
-/** setStatus, et update de n'importe quelle commande. */
+/** setStatus, setInvoice, et update de n'importe quelle commande. */
 const CUSTOMER_ORDER_EDIT = ['work_orders.edit'] as const;
 const CUSTOMER_ORDER_DELETE = ['work_orders.delete'] as const;
 
-export type CustomerOrderAction = 'read' | 'create' | 'setStatus' | 'delete';
+export type CustomerOrderAction = 'read' | 'create' | 'setStatus' | 'setInvoice' | 'delete';
 
 export function isElevated(user: Pick<AuthUser, 'role'>): boolean {
   return (ELEVATED_ROLES as readonly string[]).includes(user.role);
@@ -60,7 +60,7 @@ function hasCode(user: Pick<AuthUser, 'permissions'>, codes: readonly string[]):
 
 /**
  * Lecture, création, changement de statut ou suppression d'une commande.
- * `setStatus` couvre Marquer facturé et Remettre à facturer.
+ * `setStatus` et `setInvoice` exigent `work_orders.edit`.
  * La modification du contenu est `canUpdateCustomerOrder` : elle dépend
  * de la commande (auteur + statut), pas seulement du rôle.
  */
@@ -71,7 +71,7 @@ export function canCustomerOrder(
   if (!user) return false;
   if (isSuperAdmin(user)) return true;
   if (action === 'read' || action === 'create') return hasCode(user, CUSTOMER_ORDER_VIEW);
-  if (action === 'setStatus') return hasCode(user, CUSTOMER_ORDER_EDIT);
+  if (action === 'setStatus' || action === 'setInvoice') return hasCode(user, CUSTOMER_ORDER_EDIT);
   return hasCode(user, CUSTOMER_ORDER_DELETE);
 }
 
@@ -88,8 +88,9 @@ function sameUserId(a: string | number, b: string | number): boolean {
 
 /**
  * update : `work_orders.edit` (ou super_admin) sur n'importe quelle commande.
- * Sans ce droit : seulement si `createdBy` est l'utilisateur courant et que
- * le statut est encore `a_facturer`.
+ * Sans ce droit : seulement si `createdBy === String(auth.me.id)` et que
+ * le statut courant est `nouveau`. `envoye`, `a_facturer` et `facture`
+ * sont refusés, y compris pour l'auteur.
  */
 export function canUpdateCustomerOrder(
   user: Pick<AuthUser, 'id' | 'role' | 'permissions'> | null | undefined,
@@ -97,7 +98,7 @@ export function canUpdateCustomerOrder(
 ): boolean {
   if (!user) return false;
   if (isSuperAdmin(user) || hasCode(user, CUSTOMER_ORDER_EDIT)) return true;
-  return order.status === 'a_facturer' && sameUserId(order.createdBy, user.id);
+  return order.status === 'nouveau' && sameUserId(order.createdBy, user.id);
 }
 
 export function canAccess(

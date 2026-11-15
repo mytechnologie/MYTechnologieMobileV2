@@ -15,11 +15,24 @@ import { Badge, Button, Card, SectionTitle } from '../../src/components/Primitiv
 import { Screen } from '../../src/components/Screen';
 import { useAuth } from '../../src/auth/AuthContext';
 import { canAccess, isElevated } from '../../src/auth/access';
-import { approvals, projects as projectsApi, timesheet, workOrders } from '../../src/api/endpoints';
+import {
+  approvals,
+  customerOrders,
+  projects as projectsApi,
+  timesheet,
+  workOrders,
+} from '../../src/api/endpoints';
 import { PunchCard } from '../../src/components/PunchCard';
 import { useQuery } from '../../src/api/useApi';
 import { formatHours } from '../../src/lib/time';
-import { formatDate, toISODate, workOrderStatusStyle } from '../../src/lib/format';
+import {
+  countCustomerOrdersByStatus,
+  customerOrderStatusStyle,
+  formatDate,
+  toISODate,
+  workOrderStatusStyle,
+} from '../../src/lib/format';
+import { CUSTOMER_ORDER_STATUSES } from '../../src/api/types';
 import { colors, radius, spacing, typography } from '../../src/theme';
 
 /** Lundi 00:00 de la semaine courante. */
@@ -72,6 +85,10 @@ export default function HomeScreen() {
     () => (fieldUser ? workOrders.list() : Promise.resolve([])),
     [fieldUser],
   );
+  const ordersQ = useQuery(
+    () => (canOrders ? customerOrders.list() : Promise.resolve([])),
+    [canOrders],
+  );
 
   const weekSummary = useMemo(() => {
     const entries = entriesQ.data ?? [];
@@ -109,15 +126,20 @@ export default function HomeScreen() {
   const activeProjects = (projectsQ.data ?? []).filter(
     (p) => p.status === 'en_cours' || p.status === 'preparation' || p.status === 'reception',
   ).length;
+  const orderCounts = useMemo(
+    () => (ordersQ.data ? countCustomerOrdersByStatus(ordersQ.data) : null),
+    [ordersQ.data],
+  );
 
   const refreshing =
-    entriesQ.refreshing || projectsQ.refreshing || workOrdersQ.refreshing;
+    entriesQ.refreshing || projectsQ.refreshing || workOrdersQ.refreshing || ordersQ.refreshing;
   const onRefresh = () => {
     entriesQ.refetch();
     approvalsQ.refetch();
     setPunchKey((k) => k + 1);
     if (fieldUser) workOrdersQ.refetch();
     if (elevated) projectsQ.refetch();
+    if (canOrders) ordersQ.refetch();
   };
 
   return (
@@ -137,7 +159,16 @@ export default function HomeScreen() {
             </View>
             <View style={styles.ordersText}>
               <Text style={styles.ordersTitle}>Commandes en cours</Text>
-              <Text style={styles.ordersSub}>Aide-mémoire des besoins clients</Text>
+              {orderCounts ? (
+                <Text style={styles.ordersSub}>
+                  {CUSTOMER_ORDER_STATUSES.map((status) => {
+                    const label = customerOrderStatusStyle(status).label;
+                    return `${label} ${orderCounts[status]}`;
+                  }).join(' · ')}
+                </Text>
+              ) : (
+                <Text style={styles.ordersSub}>Aide-mémoire des besoins clients</Text>
+              )}
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.navy} />
           </Card>

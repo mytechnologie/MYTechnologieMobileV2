@@ -1,11 +1,13 @@
 /**
- * Détail d'une commande : besoin (lignes), notes, passage à « Facturé »
- * et retour à « À facturer ». La suppression est volontairement discrète.
+ * Détail d'une commande : besoin, notes, passage de statut et numéro de
+ * facture. setStatus accepte les quatre statuts. setInvoice seulement
+ * sur une commande facturée, avec work_orders.edit. La suppression reste
+ * discrète.
  */
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Badge, Button, Card, SectionTitle } from '../../../src/components/Primitives';
+import { Badge, Button, Card, SectionTitle, TextField } from '../../../src/components/Primitives';
 import { Screen } from '../../../src/components/Screen';
 import { ErrorState, LoadingState } from '../../../src/components/States';
 import { customerOrders } from '../../../src/api/endpoints';
@@ -15,6 +17,7 @@ import { canCustomerOrder, canUpdateCustomerOrder } from '../../../src/auth/acce
 import type { CustomerOrder, CustomerOrderStatus } from '../../../src/api/types';
 import {
   customerOrderStatusStyle,
+  customerOrderTransitions,
   formatOrderDate,
   formatQuantity,
 } from '../../../src/lib/format';
@@ -26,27 +29,43 @@ export default function CustomerOrderDetailScreen() {
   const orderId = String(id ?? '');
   const { user } = useAuth();
   const canSetStatus = canCustomerOrder('setStatus', user);
+  const canSetInvoice = canCustomerOrder('setInvoice', user);
   const canDelete = canCustomerOrder('delete', user);
   const q = useQuery(() => customerOrders.get(orderId), [orderId]);
   const setStatus = useMutation(customerOrders.setStatus);
+  const setInvoice = useMutation(customerOrders.setInvoice);
   const remove = useMutation(customerOrders.delete);
+  const [pendingStatus, setPendingStatus] = useState<CustomerOrderStatus | null>(null);
+  const refetchOrder = q.refetch;
 
   useFocusEffect(
     useCallback(() => {
-      q.refetch();
-    }, [q.refetch]),
+      refetchOrder();
+    }, [refetchOrder]),
   );
 
   const order = q.data;
 
   const changeStatus = async (status: CustomerOrderStatus) => {
+    setPendingStatus(status);
     try {
       await setStatus.mutate({ id: orderId, status });
       q.refetch();
     } catch (e) {
+      Alert.alert('Statut', e instanceof Error ? e.message : 'Impossible de modifier le statut.');
+    } finally {
+      setPendingStatus(null);
+    }
+  };
+
+  const saveInvoice = async (invoiceNumber: string, qbInvoiceId: string | null) => {
+    try {
+      await setInvoice.mutate({ id: orderId, invoiceNumber, qbInvoiceId });
+      q.refetch();
+    } catch (e) {
       Alert.alert(
-        'Statut',
-        e instanceof Error ? e.message : 'Impossible de modifier le statut.',
+        'Facture',
+        e instanceof Error ? e.message : 'Impossible d’enregistrer le numéro de facture.',
       );
     }
   };
@@ -90,8 +109,11 @@ export default function CustomerOrderDetailScreen() {
           order={order}
           refreshing={q.refreshing}
           onRefresh={q.refetch}
-          statusLoading={setStatus.loading}
+          pendingStatus={pendingStatus}
           onStatus={canSetStatus ? changeStatus : undefined}
+          canEditInvoice={canSetInvoice}
+          invoiceLoading={setInvoice.loading}
+          onSaveInvoice={canSetInvoice ? saveInvoice : undefined}
           onEdit={
             canUpdateCustomerOrder(user, order)
               ? () =>
@@ -113,8 +135,11 @@ function OrderBody({
   order,
   refreshing,
   onRefresh,
-  statusLoading,
+  pendingStatus,
   onStatus,
+  canEditInvoice,
+  invoiceLoading,
+  onSaveInvoice,
   onEdit,
   deleteLoading,
   onDelete,
@@ -122,15 +147,20 @@ function OrderBody({
   order: CustomerOrder;
   refreshing: boolean;
   onRefresh: () => void;
-  statusLoading: boolean;
+  pendingStatus: CustomerOrderStatus | null;
   onStatus?: (status: CustomerOrderStatus) => void;
+  canEditInvoice: boolean;
+  invoiceLoading: boolean;
+  onSaveInvoice?: (invoiceNumber: string, qbInvoiceId: string | null) => void;
   onEdit?: () => void;
   deleteLoading: boolean;
   onDelete?: () => void;
 }) {
   const status = customerOrderStatusStyle(order.status);
-  const billed = order.status === 'facture';
-  const showFooter = !!onStatus || !!onEdit || !!onDelete;
+  const transitions = onStatus ? customerOrderTransitions(order.status) : [];
+  const showInvoice =
+    order.status === 'facture' || !!order.invoiceNumber || !!order.qbInvoiceId;
+  const showFooter = !!onEdit || !!onDelete;
 
   return (
     <>
@@ -145,11 +175,30 @@ function OrderBody({
             colors={[colors.navy]}
           />
         }
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.metaRow}>
           <Text style={styles.date}>{formatOrderDate(order.orderDate)}</Text>
           <Badge label={status.label} color={status.color} bg={status.bg} />
         </View>
+
+        {transitions.length > 0 && onStatus ? (
+          <View style={styles.block}>
+            <SectionTitle>Statut</SectionTitle>
+            <View style={styles.transitions}>
+              {transitions.map((step) => (
+                <Button
+                  key={step.status}
+                  title={step.title}
+                  variant={step.primary ? 'gold' : 'secondary'}
+                  loading={pendingStatus === step.status}
+                  disabled={pendingStatus != null && pendingStatus !== step.status}
+                  onPress={() => onStatus(step.status)}
+                />
+              ))}
+            </View>
+          </View>
+        ) : null}
 
         <SectionTitle>Besoin</SectionTitle>
         <Card style={styles.block}>
@@ -176,55 +225,107 @@ function OrderBody({
         </Card>
 
         <SectionTitle>Notes</SectionTitle>
-        <Card>
+        <Card style={showInvoice ? styles.block : undefined}>
           <Text style={order.notes?.trim() ? styles.notes : styles.muted}>
             {order.notes?.trim() ? order.notes : 'Aucune note.'}
           </Text>
         </Card>
+
+        {showInvoice ? (
+          <InvoiceSection
+            key={`${order.id}:${order.invoiceNumber ?? ''}`}
+            order={order}
+            canEdit={canEditInvoice && order.status === 'facture' && !!onSaveInvoice}
+            loading={invoiceLoading}
+            onSave={onSaveInvoice}
+          />
+        ) : null}
       </ScrollView>
 
       {showFooter ? (
         <View style={styles.footer}>
-          {onStatus ? (
-            billed ? (
-              <Button
-                title="Remettre à facturer"
-                variant="secondary"
-                loading={statusLoading}
-                onPress={() => onStatus('a_facturer')}
-              />
-            ) : (
-              <Button
-                title="Marquer facturé"
-                variant="gold"
-                loading={statusLoading}
-                onPress={() => onStatus('facture')}
-              />
-            )
-          ) : null}
-          {onEdit || onDelete ? (
-            <View style={styles.quietRow}>
-              {onEdit ? (
-                <Pressable onPress={onEdit} style={styles.deleteBtn} accessibilityRole="button">
-                  <Text style={styles.editText}>Modifier</Text>
-                </Pressable>
-              ) : null}
-              {onDelete ? (
-                <Pressable
-                  onPress={onDelete}
-                  disabled={deleteLoading}
-                  style={styles.deleteBtn}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.deleteText}>
-                    {deleteLoading ? 'Suppression…' : 'Supprimer'}
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : null}
+          <View style={styles.quietRow}>
+            {onEdit ? (
+              <Pressable onPress={onEdit} style={styles.deleteBtn} accessibilityRole="button">
+                <Text style={styles.editText}>Modifier</Text>
+              </Pressable>
+            ) : null}
+            {onDelete ? (
+              <Pressable
+                onPress={onDelete}
+                disabled={deleteLoading}
+                style={styles.deleteBtn}
+                accessibilityRole="button"
+              >
+                <Text style={styles.deleteText}>
+                  {deleteLoading ? 'Suppression…' : 'Supprimer'}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       ) : null}
+    </>
+  );
+}
+
+function InvoiceSection({
+  order,
+  canEdit,
+  loading,
+  onSave,
+}: {
+  order: CustomerOrder;
+  canEdit: boolean;
+  loading: boolean;
+  onSave?: (invoiceNumber: string, qbInvoiceId: string | null) => void;
+}) {
+  const [draft, setDraft] = useState(order.invoiceNumber ?? '');
+  const trimmed = draft.trim();
+  const unchanged = trimmed === (order.invoiceNumber ?? '');
+  const clearing = !trimmed && !!order.invoiceNumber;
+
+  return (
+    <>
+      <SectionTitle>Facture</SectionTitle>
+      <Card>
+        {order.invoiceNumber ? (
+          <Text style={styles.invoiceNumber}>Facture {order.invoiceNumber}</Text>
+        ) : (
+          <Text style={styles.muted}>Aucun numéro de facture.</Text>
+        )}
+        {order.qbInvoiceId ? (
+          <Text style={styles.qbId}>Identifiant QuickBooks {order.qbInvoiceId}</Text>
+        ) : null}
+        {canEdit && onSave ? (
+          <View style={styles.invoiceForm}>
+            <TextField
+              label={order.invoiceNumber ? 'Modifier le n°' : 'Indiquer le n°'}
+              value={draft}
+              onChangeText={setDraft}
+              maxLength={50}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              placeholder="Numéro de facture"
+              hint={
+                order.invoiceNumber
+                  ? 'Laissez vide pour retirer le numéro.'
+                  : 'Le numéro se saisit à la main.'
+              }
+            />
+            <Button
+              title={clearing ? 'Retirer le numéro' : 'Enregistrer le numéro'}
+              variant={clearing ? 'secondary' : 'primary'}
+              loading={loading}
+              disabled={unchanged}
+              onPress={() => {
+                const same = trimmed === (order.invoiceNumber ?? '');
+                onSave(trimmed, same ? order.qbInvoiceId : null);
+              }}
+            />
+          </View>
+        ) : null}
+      </Card>
     </>
   );
 }
@@ -284,6 +385,19 @@ const styles = StyleSheet.create({
   },
   notes: { fontSize: typography.body, color: colors.text, lineHeight: 22 },
   muted: { fontSize: typography.small, color: colors.textMuted },
+  transitions: { gap: spacing.sm },
+  invoiceNumber: {
+    fontSize: typography.body,
+    fontWeight: typography.weightBold,
+    color: colors.text,
+  },
+  qbId: {
+    marginTop: spacing.xs,
+    fontFamily: typography.fontMono,
+    fontSize: typography.small,
+    color: colors.navy,
+  },
+  invoiceForm: { marginTop: spacing.md },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
