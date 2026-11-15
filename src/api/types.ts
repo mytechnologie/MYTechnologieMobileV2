@@ -546,7 +546,10 @@ export interface CustomerOrderLine {
   qbProductCode: string | null;
 }
 
-/** Élément de customerOrders.list et réponse de customerOrders.get. */
+/**
+ * Élément de customerOrders.list et réponse de customerOrders.get.
+ * create, update et setStatus renvoient la même forme.
+ */
 export interface CustomerOrder {
   id: string;
   clientId: string;
@@ -555,6 +558,11 @@ export interface CustomerOrder {
   orderDate: string;
   status: CustomerOrderStatus;
   notes: string | null;
+  /**
+   * Auteur. Sur le fil : `createdBy: number`, entier NOT NULL, le même id
+   * que `auth.me.id`. L'app le garde en chaîne, comme `AuthUser.id`.
+   */
+  createdBy: string;
   lines: CustomerOrderLine[];
 }
 
@@ -565,7 +573,10 @@ export interface CustomerOrderLineInput {
   qbProductCode?: string | null;
 }
 
-/** Corps de customerOrders.create. customerOrders.update reprend les mêmes champs + id. */
+/**
+ * Corps de customerOrders.create. customerOrders.update reprend les mêmes
+ * champs + id. Pas de `status` : le statut passe par setStatus.
+ */
 export interface CustomerOrderWriteInput {
   clientId: string;
   /** Date civile YYYY-MM-DD, sans heure. */

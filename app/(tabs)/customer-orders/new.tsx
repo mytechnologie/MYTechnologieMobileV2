@@ -12,7 +12,7 @@ import { EntityPicker } from '../../../src/components/EntityPicker';
 import { clients as clientsApi, customerOrders } from '../../../src/api/endpoints';
 import { useMutation, useQuery } from '../../../src/api/useApi';
 import { useAuth } from '../../../src/auth/AuthContext';
-import { canCustomerOrder } from '../../../src/auth/access';
+import { canCustomerOrder, canUpdateCustomerOrder } from '../../../src/auth/access';
 import { ErrorState, LoadingState } from '../../../src/components/States';
 import { formatOrderDate, toISODate } from '../../../src/lib/format';
 import type { CustomerOrderLineInput } from '../../../src/api/types';
@@ -50,14 +50,18 @@ export default function NewCustomerOrderScreen() {
   const { orderId: orderIdParam } = useLocalSearchParams<{ orderId?: string }>();
   const orderId = typeof orderIdParam === 'string' && orderIdParam ? orderIdParam : null;
   const editing = orderId != null;
-  const allowed = editing
-    ? canCustomerOrder('edit', user)
-    : canCustomerOrder('create', user);
   const clientsQ = useQuery(() => clientsApi.list(), []);
   const existingQ = useQuery(
     () => (orderId ? customerOrders.get(orderId) : Promise.resolve(null)),
     [orderId],
   );
+  // setStatus et l'update « toute commande » partagent work_orders.edit.
+  const canEditAny = canCustomerOrder('setStatus', user);
+  const existing = existingQ.data;
+  const allowed = editing
+    ? canEditAny || (!!existing && canUpdateCustomerOrder(user, existing))
+    : canCustomerOrder('create', user);
+  const waitingForOrder = editing && !existing && !existingQ.error;
   const create = useMutation(customerOrders.create);
   const update = useMutation(customerOrders.update);
   const nextKey = useRef(1);
@@ -71,8 +75,10 @@ export default function NewCustomerOrderScreen() {
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user && !allowed) router.replace('/(tabs)/customer-orders');
-  }, [user, allowed, router]);
+    if (!user || waitingForOrder) return;
+    if (editing && existingQ.error && !existing) return;
+    if (!allowed) router.replace('/(tabs)/customer-orders');
+  }, [user, waitingForOrder, editing, existing, existingQ.error, allowed, router]);
 
   useEffect(() => {
     const existing = existingQ.data;
@@ -205,21 +211,21 @@ export default function NewCustomerOrderScreen() {
     }
   };
 
-  if (!allowed) return null;
-  if (editing && existingQ.loading && !existingQ.data) {
+  if (waitingForOrder) {
     return (
       <Screen edges={['left', 'right']}>
         <LoadingState label="Chargement de la commande…" />
       </Screen>
     );
   }
-  if (editing && existingQ.error) {
+  if (editing && existingQ.error && !existing) {
     return (
       <Screen edges={['left', 'right']}>
         <ErrorState message={existingQ.error.message} onRetry={existingQ.refetch} />
       </Screen>
     );
   }
+  if (!allowed) return null;
 
   const saving = create.loading || update.loading;
 

@@ -4,7 +4,7 @@
  * Technicien et gestion : « Mes bons aujourd'hui » (bons du jour et bons en
  * route / sur place), ouverts d'un toucher.
  * Admin/manager : projets actifs, bons de travail du jour.
- * Technicien et gestion : tuile « Commandes en cours » (même accès que les bons).
+ * Tuile « Commandes en cours » : view_all, view_assigned, ou super_admin.
  */
 import { useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
