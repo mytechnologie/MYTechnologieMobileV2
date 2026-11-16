@@ -16,12 +16,13 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { AccessoryTextInput } from '../../../src/components/KeyboardAccessory';
 import { Button } from '../../../src/components/Primitives';
 import { DateTimeField } from '../../../src/components/DateTimeField';
+import { Screen } from '../../../src/components/Screen';
 import { LoadingState } from '../../../src/components/States';
 import { schedule } from '../../../src/api/endpoints';
 import { useMutation, useQuery } from '../../../src/api/useApi';
@@ -168,9 +169,9 @@ export default function ScheduleFormScreen() {
     ownerId === me ? 'Moi' : people.find(p => p.id === ownerId)?.name ?? existing?.userName ?? '—';
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <Screen scroll edges={['left', 'right']} padded={false} contentStyle={styles.content}>
       <View style={styles.group}>
-        <TextInput
+        <AccessoryTextInput
           style={[styles.input, styles.divider]}
           value={title}
           onChangeText={setTitle}
@@ -178,7 +179,7 @@ export default function ScheduleFormScreen() {
           placeholderTextColor={colors.disabled}
           accessibilityLabel="Titre"
         />
-        <TextInput
+        <AccessoryTextInput
           style={styles.input}
           value={location}
           onChangeText={setLocation}
@@ -263,7 +264,7 @@ export default function ScheduleFormScreen() {
       </Text>
 
       <View style={styles.group}>
-        <TextInput
+        <AccessoryTextInput
           style={[styles.input, styles.notes]}
           value={notes}
           onChangeText={setNotes}
@@ -309,7 +310,7 @@ export default function ScheduleFormScreen() {
         }}
         onClose={() => setSheet(null)}
       />
-    </ScrollView>
+    </Screen>
   );
 }
 
@@ -371,7 +372,6 @@ function OptionSheet({
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxxl },
   group: { backgroundColor: colors.surface, borderRadius: radius.md, overflow: 'hidden' },
   divider: { borderBottomWidth: 1, borderBottomColor: colors.surfaceAlt },

@@ -8,12 +8,12 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
   type StyleProp,
   type TextInputProps,
   type ViewStyle,
 } from 'react-native';
+import { AccessoryTextInput } from './KeyboardAccessory';
 import { colors, radius, shadow, spacing, typography } from '../theme';
 
 /* --------------------------------- Button ---------------------------------- */
@@ -88,7 +88,7 @@ export function TextField({ label, error, hint, style, ...rest }: TextFieldProps
   return (
     <View style={styles.fieldWrap}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
-      <TextInput
+      <AccessoryTextInput
         placeholderTextColor={colors.disabled}
         style={[styles.input, error ? styles.inputError : null, style]}
         {...rest}

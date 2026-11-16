@@ -14,7 +14,7 @@
  * (dégrade proprement si l'API refuse la liste des utilisateurs).
  */
 import { useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Button, Card, TextField } from './Primitives';
 import { EntityPicker, type PickerOption } from './EntityPicker';
@@ -27,6 +27,7 @@ import type {
   ServiceTypeItem,
   UserListItem,
   WorkOrder,
+  WorkOrderDocType,
 } from '../api/types';
 import { colors, radius, spacing, typography } from '../theme';
 
@@ -37,9 +38,12 @@ export interface WorkOrderFormValues {
   location: string | null;
   serviceDate: Date | null;
   durationMinutes: number | null;
+  docType: WorkOrderDocType;
   materialsInternal: string | null;
   problemDescription: string | null;
   actionsTaken: string | null;
+  installRequest: string | null;
+  installDescription: string | null;
   followUp: string | null;
 }
 
@@ -110,9 +114,12 @@ export function WorkOrderForm({
   const [durationM, setDurationM] = useState(
     initial?.durationMinutes != null ? String(initDuration.minutes) : '',
   );
+  const [docType, setDocType] = useState<WorkOrderDocType>('bon_travail');
   const [materials, setMaterials] = useState(initial?.materialsInternal ?? '');
   const [problem, setProblem] = useState(initial?.problemDescription ?? '');
   const [actions, setActions] = useState(initial?.actionsTaken ?? '');
+  const [installRequest, setInstallRequest] = useState('');
+  const [installDescription, setInstallDescription] = useState('');
   const [followUp, setFollowUp] = useState(initial?.followUp ?? '');
   const [error, setError] = useState<string | null>(null);
 
@@ -169,6 +176,7 @@ export function WorkOrderForm({
     }
     const durationMinutes = h > 0 || m > 0 ? Math.floor(h) * 60 + Math.floor(m) : null;
 
+    const install = docType === 'bon_installation';
     onSubmit({
       clientId,
       technicianId,
@@ -176,9 +184,12 @@ export function WorkOrderForm({
       location: location.trim() || null,
       serviceDate,
       durationMinutes,
+      docType,
       materialsInternal: materials.trim() || null,
-      problemDescription: problem.trim() || null,
-      actionsTaken: actions.trim() || null,
+      problemDescription: install ? null : problem.trim() || null,
+      actionsTaken: install ? null : actions.trim() || null,
+      installRequest: install ? installRequest.trim() || null : null,
+      installDescription: install ? installDescription.trim() || null : null,
       followUp: followUp.trim() || null,
     });
   };
@@ -191,8 +202,24 @@ export function WorkOrderForm({
     );
   }, [clientId, clientOptions]);
 
+  const install = docType === 'bon_installation';
+
   return (
     <View>
+      {mode === 'create' ? (
+        <View style={styles.typeRow}>
+          <TypeChoice
+            label="Bon de travail"
+            selected={!install}
+            onPress={() => setDocType('bon_travail')}
+          />
+          <TypeChoice
+            label="Bon d'installation"
+            selected={install}
+            onPress={() => setDocType('bon_installation')}
+          />
+        </View>
+      ) : null}
       {elevated ? (
         <>
           <Text style={styles.sectionLabel}>Informations générales</Text>
@@ -346,22 +373,45 @@ export function WorkOrderForm({
           multiline
           style={styles.multiline}
         />
-        <TextField
-          label="Problème rapporté"
-          value={problem}
-          onChangeText={setProblem}
-          placeholder="Description du problème…"
-          multiline
-          style={styles.multiline}
-        />
-        <TextField
-          label="Actions réalisées"
-          value={actions}
-          onChangeText={setActions}
-          placeholder="Interventions effectuées…"
-          multiline
-          style={styles.multiline}
-        />
+        {install ? (
+          <>
+            <TextField
+              label="Demande d'installation"
+              value={installRequest}
+              onChangeText={setInstallRequest}
+              placeholder="Ce que le client a demandé…"
+              multiline
+              style={styles.multiline}
+            />
+            <TextField
+              label="Description de l'installation"
+              value={installDescription}
+              onChangeText={setInstallDescription}
+              placeholder="Ce qui a été installé…"
+              multiline
+              style={styles.multiline}
+            />
+          </>
+        ) : (
+          <>
+            <TextField
+              label="Problème rapporté"
+              value={problem}
+              onChangeText={setProblem}
+              placeholder="Description du problème…"
+              multiline
+              style={styles.multiline}
+            />
+            <TextField
+              label="Actions réalisées"
+              value={actions}
+              onChangeText={setActions}
+              placeholder="Interventions effectuées…"
+              multiline
+              style={styles.multiline}
+            />
+          </>
+        )}
         <TextField
           label="Suivi"
           value={followUp}
@@ -386,7 +436,14 @@ export function WorkOrderForm({
       ) : null}
 
       <Button
-        title={submitLabel ?? (mode === 'create' ? 'Créer le bon de travail' : 'Enregistrer')}
+        title={
+          submitLabel ??
+          (mode === 'create'
+            ? install
+              ? "Créer le bon d'installation"
+              : 'Créer le bon de travail'
+            : 'Enregistrer')
+        }
         onPress={handleSubmit}
         loading={submitting}
       />
@@ -397,7 +454,49 @@ export function WorkOrderForm({
   );
 }
 
+function TypeChoice({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.typeBtn, selected && styles.typeBtnOn]}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+    >
+      <Text style={[styles.typeText, selected && styles.typeTextOn]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  typeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+  typeBtn: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  typeBtnOn: { backgroundColor: colors.navy, borderColor: colors.navy },
+  typeText: {
+    fontSize: typography.small,
+    fontWeight: typography.weightSemibold,
+    color: colors.navy,
+    textAlign: 'center',
+  },
+  typeTextOn: { color: colors.textOnNavy },
   sectionLabel: {
     fontSize: typography.h3,
     fontWeight: typography.weightBold,

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { keyboardDismissMode } from '../../../src/lib/keyboard';
 import { Ionicons } from '@expo/vector-icons';
 import { Badge, Button, Card } from '../../../src/components/Primitives';
 import { EmptyState, ErrorState, LoadingState } from '../../../src/components/States';
@@ -172,6 +173,7 @@ export default function CustomerOrdersScreen() {
             onRefresh={refetch}
             refreshing={refreshing}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={keyboardDismissMode}
             renderItem={({ item }) => (
               <OrderCard
                 item={item}

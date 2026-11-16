@@ -10,6 +10,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
 import { AuthProvider, useAuth } from '../src/auth/AuthContext';
+import { KeyboardAccessory } from '../src/components/KeyboardAccessory';
 import { workOrderIdOf } from '../src/notifications/push';
 
 void SplashScreen.preventAutoHideAsync();
@@ -78,6 +79,7 @@ export default function RootLayout() {
         <AuthProvider>
           <StatusBar style="light" />
           <RootNavigator />
+          <KeyboardAccessory />
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

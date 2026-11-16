@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { keyboardDismissMode } from '../../../src/lib/keyboard';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Badge,
@@ -84,6 +85,7 @@ function ProjectsList({
       contentContainerStyle={styles.list}
       onRefresh={refetch}
       refreshing={refreshing}
+      keyboardDismissMode={keyboardDismissMode}
       renderItem={({ item }) => (
         <ProjectRow
           item={item}

@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { keyboardDismissMode } from '../../../src/lib/keyboard';
 import { Button, Card, SectionTitle, TextField } from '../../../src/components/Primitives';
 import { Screen } from '../../../src/components/Screen';
 import { EntityPicker } from '../../../src/components/EntityPicker';
@@ -236,6 +237,7 @@ export default function NewCustomerOrderScreen() {
         style={styles.flex}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={keyboardDismissMode}
       >
         <SectionTitle>Client</SectionTitle>
         <Card style={styles.block}>

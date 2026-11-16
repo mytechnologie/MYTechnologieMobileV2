@@ -10,6 +10,7 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { keyboardDismissMode } from '../../../src/lib/keyboard';
 import { Ionicons } from '@expo/vector-icons';
 import { Badge, Card } from '../../../src/components/Primitives';
 import { EmptyState, ErrorState, LoadingState } from '../../../src/components/States';
@@ -97,6 +98,7 @@ function WorkOrdersList({
       contentContainerStyle={styles.list}
       onRefresh={refetch}
       refreshing={refreshing}
+      keyboardDismissMode={keyboardDismissMode}
       ListHeaderComponent={
         canCreate ? (
           <Pressable style={styles.newBtn} onPress={onCreate} accessibilityRole="button">

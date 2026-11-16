@@ -6,7 +6,6 @@ import { useState } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Button, Card, TextField } from '../../src/components/Primitives';
 import { useAuth, type OtpChallenge } from '../../src/auth/AuthContext';
+import { keyboardDismissMode, useKeyboardVerticalOffset } from '../../src/lib/keyboard';
 import { colors, radius, spacing, typography } from '../../src/theme';
 
 function message(e: unknown, fallback: string): string {
@@ -25,6 +25,7 @@ function message(e: unknown, fallback: string): string {
 
 export default function SignInScreen() {
   const { signIn, verifyCode, resendCode } = useAuth();
+  const headerOffset = useKeyboardVerticalOffset();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -94,9 +95,14 @@ export default function SignInScreen() {
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
+        keyboardVerticalOffset={headerOffset}
       >
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={keyboardDismissMode}
+        >
           <View style={styles.header}>
             <Image
               source={require('../../assets/icon.png')}

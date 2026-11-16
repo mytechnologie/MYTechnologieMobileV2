@@ -48,9 +48,12 @@ export function WorkOrderCreateView({
         location: values.location ?? undefined,
         serviceDate: values.serviceDate ?? undefined,
         durationMinutes: values.durationMinutes ?? undefined,
+        docType: values.docType,
         materialsInternal: values.materialsInternal ?? undefined,
         problemDescription: values.problemDescription ?? undefined,
         actionsTaken: values.actionsTaken ?? undefined,
+        installRequest: values.installRequest ?? undefined,
+        installDescription: values.installDescription ?? undefined,
         followUp: values.followUp ?? undefined,
       });
       const id = res.workOrder?.id;

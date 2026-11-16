@@ -11,6 +11,8 @@ export const colors = {
   navy: '#0a1f3d',
   navyDark: '#06152a',
   navyLight: '#13315c',
+  /** Phase terrain des bons (arrivée, en route, sur place). */
+  terrain: '#1d4e9e',
   gold: '#C9A227',
   goldDark: '#a8861a',
 
