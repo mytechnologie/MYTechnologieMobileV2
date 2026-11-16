@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Button, Card, TextField } from '../../src/components/Primitives';
 import { useAuth, type OtpChallenge } from '../../src/auth/AuthContext';
+import { KeyboardAccessoryScope } from '../../src/components/KeyboardAccessory';
 import { keyboardDismissMode, useKeyboardVerticalOffset } from '../../src/lib/keyboard';
 import { colors, radius, spacing, typography } from '../../src/theme';
 
@@ -93,6 +94,7 @@ export default function SignInScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <KeyboardAccessoryScope>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior="padding"
@@ -178,6 +180,7 @@ export default function SignInScreen() {
           <Text style={styles.footer}>Vous restez connecté 30 jours sur cet appareil.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
+      </KeyboardAccessoryScope>
     </SafeAreaView>
   );
 }

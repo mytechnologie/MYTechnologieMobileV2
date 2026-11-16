@@ -15,6 +15,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
+import { KeyboardAccessoryScope } from './KeyboardAccessory';
 import { keyboardDismissMode, useKeyboardVerticalOffset } from '../lib/keyboard';
 import { colors, spacing } from '../theme';
 
@@ -49,6 +50,7 @@ export function Screen({
 
   return (
     <SafeAreaView style={styles.safe} edges={edges}>
+      <KeyboardAccessoryScope>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior="padding"
@@ -78,6 +80,7 @@ export function Screen({
         )}
         {scroll ? footer : null}
       </KeyboardAvoidingView>
+      </KeyboardAccessoryScope>
     </SafeAreaView>
   );
 }

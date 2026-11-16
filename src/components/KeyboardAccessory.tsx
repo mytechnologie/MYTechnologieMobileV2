@@ -3,7 +3,7 @@
  * InputAccessoryView est le repli sans module natif (iOS seulement).
  * Sur Android, le clavier se ferme en glissant la liste ou avec Retour.
  */
-import React, { forwardRef, useEffect, useId, useRef, useState } from 'react';
+import React, { createContext, forwardRef, useContext, useEffect, useId, useRef, useState } from 'react';
 import {
   InputAccessoryView,
   Keyboard,
@@ -20,7 +20,18 @@ import { colors, spacing, typography } from '../theme';
 
 export const KEYBOARD_ACCESSORY_ID = 'mytech-keyboard-accessory';
 
-type Entry = { id: string; focus: () => void };
+/**
+ * Un écran ou une modale. Précédent / Suivant ne sortent pas de ce groupe :
+ * les onglets et les écrans laissés montés en dessous gardent leurs champs.
+ */
+const AccessoryScopeContext = createContext('root');
+
+export function KeyboardAccessoryScope({ children }: { children: React.ReactNode }) {
+  const id = useId();
+  return <AccessoryScopeContext.Provider value={id}>{children}</AccessoryScopeContext.Provider>;
+}
+
+type Entry = { id: string; scope: string; focus: () => void };
 
 const order: Entry[] = [];
 const listeners = new Set<() => void>();
@@ -31,8 +42,14 @@ function notify() {
 }
 
 function register(entry: Entry) {
+  const index = order.findIndex((item) => item.id === entry.id);
+  if (index >= 0) order.splice(index, 1);
   order.push(entry);
   notify();
+}
+
+function chainOf(scope: string): Entry[] {
+  return order.filter((entry) => entry.scope === scope);
 }
 
 function unregister(id: string) {
@@ -48,9 +65,11 @@ function markFocused(id: string) {
 }
 
 function move(delta: number) {
-  const index = order.findIndex((entry) => entry.id === focusedId);
-  const start = index === -1 ? (delta > 0 ? -1 : order.length) : index;
-  order[start + delta]?.focus();
+  const current = order.find((entry) => entry.id === focusedId);
+  if (!current) return;
+  const chain = chainOf(current.scope);
+  const index = chain.findIndex((entry) => entry.id === focusedId);
+  chain[index + delta]?.focus();
 }
 
 /** TextInput branché sur la barre (précédent / suivant / OK). */
@@ -60,11 +79,12 @@ export const AccessoryTextInput = forwardRef<TextInput, TextInputProps>(function
 ) {
   const localRef = useRef<TextInput>(null);
   const id = useId();
+  const scope = useContext(AccessoryScopeContext);
 
   useEffect(() => {
-    register({ id, focus: () => localRef.current?.focus() });
+    register({ id, scope, focus: () => localRef.current?.focus() });
     return () => unregister(id);
-  }, [id]);
+  }, [id, scope]);
 
   return (
     <TextInput
@@ -96,9 +116,11 @@ export function KeyboardAccessory() {
 
   if (Platform.OS !== 'ios') return null;
 
-  const index = order.findIndex((entry) => entry.id === focusedId);
+  const current = order.find((entry) => entry.id === focusedId);
+  const chain = current ? chainOf(current.scope) : [];
+  const index = chain.findIndex((entry) => entry.id === focusedId);
   const canPrev = index > 0;
-  const canNext = index >= 0 && index < order.length - 1;
+  const canNext = index >= 0 && index < chain.length - 1;
 
   return (
     <InputAccessoryView nativeID={KEYBOARD_ACCESSORY_ID}>

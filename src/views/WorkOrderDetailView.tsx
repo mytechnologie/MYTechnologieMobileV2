@@ -150,6 +150,7 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
   const canEditRef = useRef(canEdit);
   const discardRef = useRef(false);
   const mountedRef = useRef(true);
+  const saveErrorRef = useRef<string | null>(null);
   const inflightRef = useRef<Promise<boolean> | null>(null);
   const saveRef = useRef<() => Promise<boolean>>(async () => true);
 
@@ -174,7 +175,6 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
   }, [clockedHere]);
 
   const persist = async (): Promise<boolean> => {
-    if (!canEditRef.current) return true;
     const current = woRef.current;
     const base = committedRef.current ?? current?.content;
     if (!current || !base) return true;
@@ -182,7 +182,19 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
     const nextTests = testsDraftRef.current;
     const testsBase = committedTestsRef.current ?? current.tests;
     const testsNeed = nextTests != null && !sameTests(nextTests, testsBase);
-    if (Object.keys(nextChanged).length === 0 && !testsNeed) {
+    const pending = Object.keys(nextChanged).length > 0 || testsNeed;
+    if (!canEditRef.current) {
+      if (!pending) return true;
+      const message = "Ce bon n'est plus modifiable. Les changements n'ont pas été enregistrés.";
+      saveErrorRef.current = message;
+      if (mountedRef.current) {
+        setSaveStatus('error');
+        setSaveError(message);
+      }
+      return false;
+    }
+    if (!pending) {
+      saveErrorRef.current = null;
       if (mountedRef.current) {
         setSaveStatus('saved');
         setSaveError(null);
@@ -208,11 +220,14 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
         setCommittedTests(nextTests);
         setTestsDraft((prev) => (prev && sameTests(prev, nextTests) ? null : prev));
       }
+      saveErrorRef.current = null;
       setSaveStatus('saved');
       return true;
     } catch (e) {
+      const message = e instanceof Error ? e.message : 'Enregistrement impossible.';
+      saveErrorRef.current = message;
       if (!mountedRef.current) return false;
-      setSaveError(e instanceof Error ? e.message : 'Enregistrement impossible.');
+      setSaveError(message);
       setSaveStatus('error');
       return false;
     }
@@ -269,7 +284,13 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
             text: 'Enregistrer',
             onPress: () => {
               void saveRef.current().then((ok) => {
-                if (!ok) return;
+                if (!ok) {
+                  Alert.alert(
+                    'Enregistrement impossible',
+                    saveErrorRef.current ?? "Les changements n'ont pas été enregistrés.",
+                  );
+                  return;
+                }
                 discardRef.current = true;
                 navigation.dispatch(e.data.action);
               });

@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { AccessoryTextInput } from './KeyboardAccessory';
+import { AccessoryTextInput, KeyboardAccessoryScope } from './KeyboardAccessory';
 import { timesheet } from '../api/endpoints';
 import { useQuery } from '../api/useApi';
 import type { ProjectOption, TimesheetLink } from '../api/types';
@@ -126,6 +126,7 @@ export function ReferencePicker({
       </Pressable>
 
       <Modal visible={open} animationType="slide" onRequestClose={close}>
+        <KeyboardAccessoryScope>
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
             {pendingProject ? (
@@ -221,6 +222,7 @@ export function ReferencePicker({
             </>
           )}
         </View>
+        </KeyboardAccessoryScope>
       </Modal>
     </View>
   );
