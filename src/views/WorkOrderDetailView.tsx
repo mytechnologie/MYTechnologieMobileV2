@@ -637,18 +637,18 @@ export function WorkOrderDetailView({ id, embedded = false }: { id: string; embe
             </View>
           ) : null}
         </SectionCard>
-      ) : (
-        <SectionCard title="Matériaux" filled={!!valueOf('materialsInternal').trim()}>
-          <Text style={styles.internal}>Interne</Text>
-          <Field
-            value={valueOf('materialsInternal')}
-            placeholder="Pièces, quantités…"
-            editable={canEdit}
-            onChangeText={(text) => setField('materialsInternal', text)}
-            onBlur={blurSave}
-          />
-        </SectionCard>
-      )}
+      ) : null}
+
+      <SectionCard title="Matériaux" filled={!!valueOf('materialsInternal').trim()}>
+        <Text style={styles.internal}>Interne</Text>
+        <Field
+          value={valueOf('materialsInternal')}
+          placeholder="Pièces, quantités…"
+          editable={canEdit}
+          onChangeText={(text) => setField('materialsInternal', text)}
+          onBlur={blurSave}
+        />
+      </SectionCard>
 
       <SectionCard title="Photos" filled={photos.length > 0} required={photos.length === 0}>
         <View style={styles.grid}>
