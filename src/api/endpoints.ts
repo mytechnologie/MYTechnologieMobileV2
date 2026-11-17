@@ -192,6 +192,7 @@ interface WorkOrderRow {
   serviceDate: Date | string | null;
   problemDescription: string | null;
   actionsTaken?: string | null;
+  dispatchedAt?: Date | string | null;
   clientName?: string | null;
   technicianName?: string | null;
 }
@@ -219,6 +220,7 @@ function toWorkOrder(r: WorkOrderRow): WorkOrderDetail {
     description: problem || null,
     clientId: String(r.clientId),
     docType: r.docType ?? null,
+    dispatchedAt: r.dispatchedAt ? new Date(r.dispatchedAt).toISOString() : null,
     content: {
       problemDescription: problem,
       actionsTaken: htmlToText(r.actionsTaken),
@@ -265,6 +267,12 @@ async function uploadWorkOrderFile(
 }
 
 export const SIGNATURE_CAPTION = 'Signature du client';
+
+function richText(value: string | null | undefined): string | null | undefined {
+  if (value == null) return value;
+  const text = value.trim();
+  return text ? textToHtml(text) : null;
+}
 
 export const workOrders = {
   /** Le portail limite déjà un technicien à ses bons (work_orders.view_assigned). */
@@ -315,14 +323,32 @@ export const workOrders = {
   },
 
   /** Notes de travail : actionsTaken (installDescription pour un bon d'installation). */
-  /** Création (admin/manager, permission work_orders.create). Textes riches → HTML. */
-  create: (input: CreateWorkOrderInput): Promise<CreateWorkOrderResult> =>
-    trpc.workOrders.create.mutate({
+  /**
+   * Création (admin/manager, permission work_orders.create). Textes riches → HTML.
+   * docType est accepté par le portail et fige la numérotation. Les champs de
+   * l'autre type ne partent pas.
+   */
+  create: (input: CreateWorkOrderInput): Promise<CreateWorkOrderResult> => {
+    const docType = input.docType ?? 'bon_travail';
+    const body: CreateWorkOrderInput = {
       ...input,
-      problemDescription: input.problemDescription ? textToHtml(input.problemDescription) : input.problemDescription,
-      actionsTaken: input.actionsTaken ? textToHtml(input.actionsTaken) : input.actionsTaken,
-      followUp: input.followUp ? textToHtml(input.followUp) : input.followUp,
-    }),
+      docType,
+      materialsInternal: richText(input.materialsInternal),
+      followUp: richText(input.followUp),
+    };
+    if (docType === 'bon_installation') {
+      body.installRequest = richText(input.installRequest);
+      body.installDescription = richText(input.installDescription);
+      delete body.problemDescription;
+      delete body.actionsTaken;
+    } else {
+      body.problemDescription = richText(input.problemDescription);
+      body.actionsTaken = richText(input.actionsTaken);
+      delete body.installRequest;
+      delete body.installDescription;
+    }
+    return trpc.workOrders.create.mutate(body);
+  },
 
   /**
    * Contenu du bon, comme le formulaire du portail. Seuls les champs modifiés

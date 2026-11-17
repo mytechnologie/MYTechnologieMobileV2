@@ -5,6 +5,7 @@
 import { useCallback } from 'react';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { keyboardDismissMode } from '../../../src/lib/keyboard';
 import { Badge, Button, Card, SectionTitle } from '../../../src/components/Primitives';
 import { Screen } from '../../../src/components/Screen';
 import { ErrorState, LoadingState } from '../../../src/components/States';
@@ -137,6 +138,8 @@ function OrderBody({
       <ScrollView
         style={styles.flex}
         contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={keyboardDismissMode}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

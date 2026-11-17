@@ -3,8 +3,9 @@
  * soumises regroupées par employé, approbation en bloc, refus par entrée avec
  * motif. Le portail limite chaque approbateur à son périmètre.
  */
-import { useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, StyleSheet, Text, View, type TextInput } from 'react-native';
+import { AccessoryTextInput } from '../../../src/components/KeyboardAccessory';
 import { Button, Card } from '../../../src/components/Primitives';
 import { Screen } from '../../../src/components/Screen';
 import { EmptyState, ErrorState, LoadingState } from '../../../src/components/States';
@@ -24,6 +25,15 @@ function EntryLine({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const reasonRef = useRef<TextInput>(null);
+
+  // autoFocus part parfois avant que le ScrollView soit prêt : on redonne
+  // le focus juste après pour que l'écran remonte jusqu'au motif.
+  useEffect(() => {
+    if (!rejecting) return;
+    const timer = setTimeout(() => reasonRef.current?.focus(), 280);
+    return () => clearTimeout(timer);
+  }, [rejecting]);
 
   const confirmReject = async () => {
     if (!reason.trim()) return;
@@ -51,7 +61,8 @@ function EntryLine({
       {entry.notes ? <Text style={styles.entryNotes}>{entry.notes}</Text> : null}
       {rejecting ? (
         <View style={styles.rejectBox}>
-          <TextInput
+          <AccessoryTextInput
+            ref={reasonRef}
             style={styles.reason}
             placeholder="Motif du refus (visible par l'employé)"
             placeholderTextColor={colors.disabled}
@@ -132,7 +143,12 @@ export default function ApprovalsScreen() {
   }
 
   return (
-    <Screen scroll refreshing={q.refreshing} onRefresh={q.refetch}>
+    <Screen
+      scroll
+      refreshing={q.refreshing}
+      onRefresh={q.refetch}
+      contentStyle={styles.scrollRoom}
+    >
       {groups.map(g => (
         <GroupCard key={g.userId} group={g} onChanged={q.refetch} />
       ))}
@@ -141,6 +157,7 @@ export default function ApprovalsScreen() {
 }
 
 const styles = StyleSheet.create({
+  scrollRoom: { paddingBottom: 280 },
   group: { marginBottom: spacing.md, gap: spacing.sm },
   name: { fontSize: typography.body, fontWeight: typography.weightBold, color: colors.text, flex: 1 },
   total: { fontSize: typography.body, fontWeight: typography.weightBold, color: colors.navy },

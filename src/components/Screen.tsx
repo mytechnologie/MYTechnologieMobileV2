@@ -1,10 +1,13 @@
 /**
- * Conteneur d'écran : fond clair + safe area. Variante scrollable optionnelle.
+ * Conteneur d'écran : fond clair, safe area, clavier.
+ * Le défilement et un éventuel pied (barre d'enregistrement, actions) sont
+ * dans le même KeyboardAvoidingView : le pied reste au-dessus du clavier.
+ * behavior « padding » sur iOS et Android. Le décalage est la hauteur réelle
+ * du header (useHeaderHeight), pas une constante.
  */
 import React from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -12,6 +15,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
+import { KeyboardAccessoryScope } from './KeyboardAccessory';
+import { keyboardDismissMode, useKeyboardVerticalOffset } from '../lib/keyboard';
 import { colors, spacing } from '../theme';
 
 interface ScreenProps {
@@ -23,6 +28,11 @@ interface ScreenProps {
   edges?: Edge[];
   /** Padding horizontal/vertical par défaut. */
   padded?: boolean;
+  /**
+   * Pied fixe, frère du défilement, donc collé au-dessus du clavier.
+   * Ignoré quand scroll est false : placer alors le pied comme enfant, après le ScrollView.
+   */
+  footer?: React.ReactNode;
 }
 
 export function Screen({
@@ -33,38 +43,44 @@ export function Screen({
   contentStyle,
   edges = ['top', 'left', 'right'],
   padded = true,
+  footer,
 }: ScreenProps) {
+  const headerOffset = useKeyboardVerticalOffset();
   const padding = padded ? { padding: spacing.lg } : undefined;
 
   return (
     <SafeAreaView style={styles.safe} edges={edges}>
+      <KeyboardAccessoryScope>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+        behavior="padding"
+        keyboardVerticalOffset={headerOffset}
       >
-      {scroll ? (
-        <ScrollView
-          style={styles.flex}
-          contentContainerStyle={[styles.scrollContent, padding, contentStyle]}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            onRefresh ? (
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor={colors.navy}
-                colors={[colors.navy]}
-              />
-            ) : undefined
-          }
-        >
-          {children}
-        </ScrollView>
-      ) : (
-        <View style={[styles.flex, padding, contentStyle]}>{children}</View>
-      )}
+        {scroll ? (
+          <ScrollView
+            style={styles.flex}
+            contentContainerStyle={[styles.scrollContent, padding, contentStyle]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={keyboardDismissMode}
+            refreshControl={
+              onRefresh ? (
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={colors.navy}
+                  colors={[colors.navy]}
+                />
+              ) : undefined
+            }
+          >
+            {children}
+          </ScrollView>
+        ) : (
+          <View style={[styles.flex, padding, contentStyle]}>{children}</View>
+        )}
+        {scroll ? footer : null}
       </KeyboardAvoidingView>
+      </KeyboardAccessoryScope>
     </SafeAreaView>
   );
 }

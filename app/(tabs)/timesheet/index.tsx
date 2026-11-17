@@ -5,6 +5,7 @@
 import { useCallback, useMemo } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
+import { keyboardDismissMode } from '../../../src/lib/keyboard';
 import { Ionicons } from '@expo/vector-icons';
 import { Badge, Button, Card } from '../../../src/components/Primitives';
 import { EmptyState, ErrorState, LoadingState } from '../../../src/components/States';
@@ -118,6 +119,7 @@ export default function TimesheetScreen() {
         contentContainerStyle={styles.list}
         onRefresh={refetch}
         refreshing={refreshing}
+        keyboardDismissMode={keyboardDismissMode}
         renderItem={({ item }) => (
           <EntryRow
             entry={item}

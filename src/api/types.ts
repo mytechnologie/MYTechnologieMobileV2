@@ -232,12 +232,16 @@ export interface WorkOrderListItem {
   address?: string | null;
 }
 
+export type WorkOrderDocType = 'bon_travail' | 'bon_installation';
+
 export interface WorkOrderDetail extends WorkOrderListItem {
   /** Problème signalé, en texte simple. */
   description?: string | null;
   clientId: string;
-  /** 'appel_service' | 'bon_installation' … (shared/ du portail). */
+  /** 'bon_travail' | 'bon_installation' (shared/workOrderDocType.ts). Absent → bon de travail. */
   docType: string | null;
+  /** Répartition du bon. Le technicien a 7 jours après cette date pour modifier. */
+  dispatchedAt: string | null;
   /** Champs de contenu du bon, en texte simple (HTML au portail). */
   content: WorkOrderContent;
   /** Tests effectués (bon d'installation seulement). */
@@ -432,6 +436,8 @@ export interface WorkOrder {
  */
 export interface CreateWorkOrderInput {
   clientId: number;
+  /** Figé à la création. Défaut serveur : bon_travail. */
+  docType?: WorkOrderDocType;
   technicianId?: number | null;
   serviceType?: string | null;
   location?: string | null;
@@ -439,6 +445,8 @@ export interface CreateWorkOrderInput {
   durationMinutes?: number | null;
   problemDescription?: string | null;
   actionsTaken?: string | null;
+  installRequest?: string | null;
+  installDescription?: string | null;
   followUp?: string | null;
   materialsInternal?: string | null;
 }

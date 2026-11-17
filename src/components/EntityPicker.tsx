@@ -15,10 +15,11 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { AccessoryTextInput, KeyboardAccessoryScope } from './KeyboardAccessory';
+import { keyboardDismissMode, useKeyboardInset } from '../lib/keyboard';
 import { colors, radius, spacing, typography } from '../theme';
 
 export interface PickerOption {
@@ -69,6 +70,7 @@ export function EntityPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const keyboardInset = useKeyboardInset();
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -127,6 +129,7 @@ export function EntityPicker({
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
       <Modal visible={open} animationType="slide" onRequestClose={close}>
+        <KeyboardAccessoryScope>
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{modalTitle ?? label}</Text>
@@ -137,7 +140,7 @@ export function EntityPicker({
 
           <View style={styles.searchRow}>
             <Ionicons name="search" size={18} color={colors.textMuted} />
-            <TextInput
+            <AccessoryTextInput
               style={styles.searchInput}
               placeholder={searchPlaceholder}
               placeholderTextColor={colors.disabled}
@@ -152,6 +155,7 @@ export function EntityPicker({
             data={filtered}
             keyExtractor={(o) => o.id}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={keyboardDismissMode}
             ListHeaderComponent={
               <>
                 {allowNone ? (
@@ -199,9 +203,10 @@ export function EntityPicker({
             ListEmptyComponent={
               <Text style={styles.empty}>{loading ? 'Chargement…' : emptyLabel}</Text>
             }
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: spacing.lg + keyboardInset }]}
           />
         </View>
+        </KeyboardAccessoryScope>
       </Modal>
     </View>
   );

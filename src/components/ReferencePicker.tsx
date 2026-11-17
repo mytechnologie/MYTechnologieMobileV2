@@ -10,13 +10,14 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { AccessoryTextInput, KeyboardAccessoryScope } from './KeyboardAccessory';
 import { timesheet } from '../api/endpoints';
 import { useQuery } from '../api/useApi';
 import type { ProjectOption, TimesheetLink } from '../api/types';
+import { keyboardDismissMode, useKeyboardInset } from '../lib/keyboard';
 import { colors, radius, spacing, typography } from '../theme';
 
 export interface LinkSelection {
@@ -39,6 +40,7 @@ export function ReferencePicker({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const keyboardInset = useKeyboardInset();
   /** Projet choisi dont on attend la phase. */
   const [pendingProject, setPendingProject] = useState<ProjectOption | null>(null);
 
@@ -124,6 +126,7 @@ export function ReferencePicker({
       </Pressable>
 
       <Modal visible={open} animationType="slide" onRequestClose={close}>
+        <KeyboardAccessoryScope>
         <View style={styles.modal}>
           <View style={styles.modalHeader}>
             {pendingProject ? (
@@ -143,6 +146,9 @@ export function ReferencePicker({
             <FlatList
               data={pendingProject.phases}
               keyExtractor={ph => String(ph.id)}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={keyboardDismissMode}
+              contentContainerStyle={[styles.listContent, { paddingBottom: spacing.lg + keyboardInset }]}
               ListHeaderComponent={<Text style={styles.phaseProject}>{pendingProject.name}</Text>}
               renderItem={({ item }) => (
                 <Pressable style={styles.optionRow} onPress={() => selectPhase(pendingProject, item)}>
@@ -152,13 +158,12 @@ export function ReferencePicker({
                   </Text>
                 </Pressable>
               )}
-              contentContainerStyle={styles.listContent}
             />
           ) : (
             <>
               <View style={styles.searchRow}>
                 <Ionicons name="search" size={18} color={colors.textMuted} />
-                <TextInput
+                <AccessoryTextInput
                   style={styles.searchInput}
                   placeholder="Rechercher un projet, un client, une enquête…"
                   placeholderTextColor={colors.disabled}
@@ -171,6 +176,8 @@ export function ReferencePicker({
               <FlatList
                 data={filtered}
                 keyExtractor={o => o.key}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={keyboardDismissMode}
                 ListHeaderComponent={
                   <Pressable
                     style={styles.optionRow}
@@ -210,11 +217,12 @@ export function ReferencePicker({
                       : 'Aucun élément disponible. Vous pouvez laisser ce champ vide.'}
                   </Text>
                 }
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={[styles.listContent, { paddingBottom: spacing.lg + keyboardInset }]}
               />
             </>
           )}
         </View>
+        </KeyboardAccessoryScope>
       </Modal>
     </View>
   );
